@@ -78,7 +78,7 @@ class TaskQueue:
             task.result = task.fn(*task.args, **task.kwargs)
             self._set_status(task, SUCCESS)
         except Exception as e:  # noqa: BLE001 - 任务级兜底，错误记录在 task.error
-            task.error = repr(e)  # repr 保留异常类型与消息，利于 UI 展示
+            task.error = str(e) or type(e).__name__  # 存消息，空消息兜底类型名
             self._set_status(task, FAILED)
         finally:
             task.done.set()

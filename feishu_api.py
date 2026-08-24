@@ -479,13 +479,15 @@ class FeishuClient:
         return self.create_doc(title, folder_token)
 
     # ------------------------------------------------------------ 树（供 UI）
-    def list_folder_tree(self, folder_token=""):
-        """递归列云空间文件夹树，返回 [{name, token, type, children}]"""
+    def list_folder_tree(self, folder_token="", depth=0, max_depth=5):
+        """递归列云空间文件夹树（限制深度防大云盘卡死），返回 [{name, token, type, children}]"""
+        if depth >= max_depth:
+            return []
         nodes = []
         for f in self.list_folder_children(folder_token):
             if f.get("type") == "folder":
                 node = {"name": f.get("name"), "token": f.get("token"), "type": "folder"}
-                node["children"] = self.list_folder_tree(f.get("token"))
+                node["children"] = self.list_folder_tree(f.get("token"), depth + 1, max_depth)
                 nodes.append(node)
         return nodes
 
@@ -502,7 +504,9 @@ class FeishuClient:
             trees.append(node)
         return trees
 
-    def _wiki_node_tree(self, space_id, parent_node_token):
+    def _wiki_node_tree(self, space_id, parent_node_token, depth=0, max_depth=5):
+        if depth >= max_depth:
+            return []
         nodes = []
         for n in self.list_wiki_nodes(space_id, parent_node_token):
             # 只有能挂文档的节点才展开（doc/短链接节点跳过）
@@ -510,7 +514,7 @@ class FeishuClient:
                 continue
             item = {"name": (n.get("title") or "").strip(), "node_token": n.get("node_token")}
             if n.get("has_child"):
-                item["children"] = self._wiki_node_tree(space_id, n.get("node_token"))
+                item["children"] = self._wiki_node_tree(space_id, n.get("node_token"), depth + 1, max_depth)
             nodes.append(item)
         return nodes
 
