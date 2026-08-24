@@ -14,6 +14,8 @@ Markdown ↔ 飞书云文档双向转换桌面应用（Windows）。
 
 从 [Releases](../../releases) 页面下载最新 `md2feishu2md.exe`（无需安装 Python，双击即用）。
 
+> 运行依赖：需要 Windows 10/11 已安装 **WebView2 Runtime**（Win11 及已更新的 Win10 自带，缺失时请安装 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)）。请将 exe 放在可写目录（配置文件 `config.json` 会生成在 exe 同目录）。
+
 ## 快速开始（源码运行）
 
 ```bash
@@ -35,8 +37,7 @@ python app.py
 
 | 权限 | 用途 |
 |---|---|
-| `docx:document` | 创建/读取/删除文档与块 |
-| `docx:document:write` | 写入文档块 |
+| `docx:document` | 创建/读取/删除文档与块（读写） |
 | `drive:drive` | 上传/下载图片、操作云空间文件夹 |
 | `wiki:wiki`（可选） | 转换到知识库 |
 
