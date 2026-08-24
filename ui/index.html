@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>md2feishu2md</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">md2feishu2md</div>
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="convert">📄 转换</button>
+        <button class="nav-btn" data-tab="batch">📦 批量</button>
+        <button class="nav-btn" data-tab="reverse">🔄 反向</button>
+        <button class="nav-btn" data-tab="settings">⚙️ 设置</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <!-- 转换 -->
+      <section id="tab-convert" class="tab-panel active">
+        <h2>Markdown → 飞书文档</h2>
+        <div class="field">
+          <label>源文件</label>
+          <div class="row">
+            <input type="text" id="convert-file" placeholder="选择 .md 文件" readonly>
+            <button class="btn" id="btn-pick-file">选择文件</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>文档标题</label>
+          <input type="text" id="convert-title" placeholder="留空使用文件名">
+        </div>
+        <div class="field">
+          <label>目标路径</label>
+          <div class="row">
+            <select id="convert-dest"></select>
+            <input type="text" id="convert-dest-manual" placeholder="或手动输入：知识库>节点 或 文件夹>子夹">
+          </div>
+        </div>
+        <div class="field">
+          <button class="btn primary" id="btn-convert">开始转换</button>
+        </div>
+        <div id="convert-result" class="result-card hidden"></div>
+      </section>
+
+      <!-- 批量 -->
+      <section id="tab-batch" class="tab-panel">
+        <h2>批量转换</h2>
+        <div class="field">
+          <label>目标路径</label>
+          <div class="row">
+            <select id="batch-dest"></select>
+            <input type="text" id="batch-dest-manual" placeholder="或手动输入路径">
+          </div>
+        </div>
+        <div class="field">
+          <div class="row">
+            <button class="btn" id="btn-pick-files">添加文件</button>
+            <button class="btn primary" id="btn-batch-start">开始全部</button>
+            <button class="btn" id="btn-batch-clear">清空</button>
+          </div>
+        </div>
+        <ul id="batch-list" class="task-list"></ul>
+      </section>
+
+      <!-- 反向 -->
+      <section id="tab-reverse" class="tab-panel">
+        <h2>飞书文档 → Markdown</h2>
+        <div class="field">
+          <label>文档链接</label>
+          <input type="text" id="reverse-url" placeholder="粘贴飞书文档链接（含 /docx/{id}）">
+        </div>
+        <div class="field">
+          <label>输出目录</label>
+          <div class="row">
+            <input type="text" id="reverse-out" placeholder="选择输出目录">
+            <button class="btn" id="btn-pick-outdir">选择目录</button>
+          </div>
+        </div>
+        <div class="field">
+          <button class="btn primary" id="btn-reverse">转换下载</button>
+        </div>
+        <div id="reverse-result" class="result-card hidden"></div>
+      </section>
+
+      <!-- 设置 -->
+      <section id="tab-settings" class="tab-panel">
+        <h2>设置</h2>
+        <div class="field">
+          <label>App ID</label>
+          <input type="text" id="set-app-id" placeholder="飞书自建应用 App ID">
+        </div>
+        <div class="field">
+          <label>App Secret</label>
+          <input type="password" id="set-app-secret" placeholder="App Secret（已保存时留空表示不修改）">
+        </div>
+        <div class="field">
+          <label>文档并发数（1~5）</label>
+          <div class="row">
+            <input type="range" id="set-concurrency" min="1" max="5" step="1" value="3">
+            <span id="set-concurrency-val">3</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>默认输出目录</label>
+          <div class="row">
+            <input type="text" id="set-outdir" placeholder="反向转换默认输出目录">
+            <button class="btn" id="btn-pick-set-outdir">选择目录</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="row">
+            <button class="btn" id="btn-test-conn">测试连接</button>
+            <button class="btn primary" id="btn-save-config">保存设置</button>
+          </div>
+        </div>
+        <div id="settings-result" class="result-card hidden"></div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="statusbar">
+    <span id="cred-status">凭据未配置</span>
+    <span class="spacer"></span>
+    <span>md2feishu2md v0.1.0</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
