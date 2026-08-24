@@ -97,6 +97,10 @@ def render_block(block, blocks_by_id=None):
         return _render_table(block, blocks_by_id or {})
     if btype == 27:  # image（内容由 render_document 收集，这里只返回占位）
         return ""
+    if btype == 1:  # page 根块（透明容器，不输出）
+        return ""
+    if btype == 32:  # table_cell（由 table 块消费，不单独输出）
+        return ""
     # 未知块
     return "[未知块]"
 
@@ -144,32 +148,69 @@ def _cell_text(cell_block, blocks_by_id):
 def render_document(blocks):
     """全量飞书块 → (md 文本, image_refs)。
 
+    飞书 /blocks 返回扁平块列表（含根 page 块 type=1, parent_id=""）：
+    - 有根 page 块时，从它的 children 开始递归渲染（depth 0），根块本身不输出
+    - 无根 page 块（测试/人工数据）时，不被任何块 children 引用的块视为顶层
+
+    table_cell（type 32）由 table 块消费，不单独渲染。
+
     image_refs: 按出现顺序收集，元素 {"file_token", "name", "block_id"}，
     图片块在 md 中渲染为 ![name](images/name)，调用方需下载对应图片。
     """
     blocks_by_id = {b.get("block_id"): b for b in blocks if b.get("block_id")}
+    state = {"img_idx": 0, "image_refs": []}
     lines = []
-    image_refs = []
-    img_idx = 0
 
-    for block in blocks:
-        btype = block.get("block_type")
-        if btype == 27:  # image
-            img = block.get("image") or {}
-            token = img.get("token") or img.get("file_token")
-            if not token:
-                lines.append("![图片缺失]()")
-                continue
-            img_idx += 1
-            name = f"image_{img_idx}.png"
-            # 根据 width/height 无法判断真实格式，统一用 png，下载后按实际类型修正
-            lines.append(f"![图片{img_idx}](images/{name})")
-            image_refs.append(
-                {"file_token": token, "name": name, "block_id": block.get("block_id", "")}
-            )
-            continue
-        line = render_block(block, blocks_by_id)
-        if line:
-            lines.append(line)
+    root = next((b for b in blocks if b.get("block_type") == 1 and not b.get("parent_id")), None)
+    if root is not None:
+        for cid in root.get("children") or []:
+            child = blocks_by_id.get(cid)
+            if child:
+                lines.extend(_render_tree(child, blocks_by_id, 0, state))
+    else:
+        child_ids = set()
+        for b in blocks:
+            for cid in b.get("children") or []:
+                child_ids.add(cid)
+        for block in blocks:
+            if block.get("block_id") in child_ids:
+                continue  # 子块由父块递归渲染
+            lines.extend(_render_tree(block, blocks_by_id, 0, state))
+    return "\n".join(lines), state["image_refs"]
 
-    return "\n".join(lines), image_refs
+
+def _render_tree(block, blocks_by_id, depth, state):
+    """递归渲染块及其子块（嵌套列表缩进），返回行列表。table_cell/page 跳过。"""
+    btype = block.get("block_type")
+    if btype == 32:  # table_cell，由 table 块消费
+        return []
+    if btype == 1:  # page 根块：透明容器，不输出，children 以同 depth 渲染
+        out = []
+        for cid in block.get("children") or []:
+            child = blocks_by_id.get(cid)
+            if child:
+                out.extend(_render_tree(child, blocks_by_id, depth, state))
+        return out
+    if btype == 27:  # image
+        img = block.get("image") or {}
+        token = img.get("token") or img.get("file_token")
+        indent = "  " * depth
+        if not token:
+            return [indent + "![图片缺失]()"]
+        state["img_idx"] += 1
+        name = f"image_{state['img_idx']}.png"
+        state["image_refs"].append(
+            {"file_token": token, "name": name, "block_id": block.get("block_id", "")}
+        )
+        return [indent + f"![图片{state['img_idx']}](images/{name})"]
+
+    lines = []
+    line = render_block(block, blocks_by_id)
+    if line:
+        lines.append("  " * depth + line)
+    if btype != 31:  # table 不递归 children（cells 已含内容）
+        for cid in block.get("children") or []:
+            child = blocks_by_id.get(cid)
+            if child:
+                lines.extend(_render_tree(child, blocks_by_id, depth + 1, state))
+    return lines

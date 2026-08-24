@@ -186,3 +186,57 @@ class TestRenderDocument:
         md, refs = render_document(blocks)
         assert md == "[未知块]"
         assert refs == []
+
+    def test_nested_list(self):
+        # 顶层 bullet 有 children（子 bullet），递归渲染并缩进
+        blocks = [
+            {"block_id": "b1", "block_type": 12, "bullet": {"elements": [el("parent")]}, "children": ["b2"]},
+            {"block_id": "b2", "block_type": 12, "bullet": {"elements": [el("child")]}},
+        ]
+        md, refs = render_document(blocks)
+        assert md == "- parent\n  - child"
+        assert refs == []
+
+    def test_table_cell_not_duplicated(self):
+        # 保序 read_blocks 后 table/cell/text 子块都在扁平列表里，
+        # render_document 应只渲染 table 一次，不重复渲染 cell 与 text
+        cell_children = {
+            "t1": {"block_id": "t1", "block_type": 2, "text": {"elements": [el("a")]}},
+            "t2": {"block_id": "t2", "block_type": 2, "text": {"elements": [el("b")]}},
+        }
+        cell_blocks = [
+            {"block_id": "c1", "block_type": 32, "children": ["t1"]},
+            {"block_id": "c2", "block_type": 32, "children": ["t2"]},
+        ]
+        table_block = {
+            "block_id": "tbl", "block_type": 31,
+            "table": {"property": {"row_size": 1, "column_size": 2}, "cells": ["c1", "c2"]},
+            "children": ["c1", "c2"],
+        }
+        blocks = [table_block] + cell_blocks + list(cell_children.values())
+        md, refs = render_document(blocks)
+        assert md == "| a | b |"
+        assert refs == []
+
+    def test_root_page_block(self):
+        # 模拟真实飞书 /blocks 返回：根 page 块(type 1, parent_id="") + 标题 + 正文。
+        # 应无 [未知块]、无整体缩进。
+        blocks = [
+            {"block_id": "root", "block_type": 1, "parent_id": "", "children": ["h1", "t1"]},
+            {"block_id": "h1", "block_type": 3, "parent_id": "root", "heading1": {"elements": [el("标题")]}},
+            {"block_id": "t1", "block_type": 2, "parent_id": "root", "text": {"elements": [el("正文")]}},
+        ]
+        md, refs = render_document(blocks)
+        assert md == "# 标题\n正文"
+        assert refs == []
+
+    def test_root_page_block_nested_list(self):
+        # 根 page 块 + 嵌套列表：只缩进嵌套项，不整体缩进
+        blocks = [
+            {"block_id": "root", "block_type": 1, "parent_id": "", "children": ["b1"]},
+            {"block_id": "b1", "block_type": 12, "parent_id": "root", "bullet": {"elements": [el("parent")]}, "children": ["b2"]},
+            {"block_id": "b2", "block_type": 12, "parent_id": "b1", "bullet": {"elements": [el("child")]}},
+        ]
+        md, refs = render_document(blocks)
+        assert md == "- parent\n  - child"
+        assert refs == []
