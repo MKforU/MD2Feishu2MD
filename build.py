@@ -12,11 +12,11 @@ import sys
 
 def main():
     root = os.path.dirname(os.path.abspath(__file__))
-    # 清理旧产物
+    # 清理旧产物（ignore_errors：若旧 exe 仍被运行占用则跳过，避免打包中断）
     for d in ("build", "dist"):
         p = os.path.join(root, d)
         if os.path.isdir(p):
-            shutil.rmtree(p)
+            shutil.rmtree(p, ignore_errors=True)
     spec = os.path.join(root, "md2feishu2md.spec")
     if os.path.isfile(spec):
         os.remove(spec)
@@ -28,6 +28,9 @@ def main():
         "--onefile", "--windowed",
         "--name", "md2feishu2md",
         "--add-data", f"ui{sep}ui",
+        # clr_loader（pythonnet）加载 .NET 依赖 cffi/pycparser，PyInstaller 静态分析易漏，显式收集
+        "--collect-all", "cffi",
+        "--collect-all", "pycparser",
         "--clean", "--noconfirm",
         os.path.join(root, "app.py"),
     ]
