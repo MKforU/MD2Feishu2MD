@@ -13,10 +13,13 @@ Api 类暴露给前端（window.pywebview.api.xxx）：
 
 转换逻辑（纯函数 md2feishu/feishu2md）与网络（feishu_api）、调度（task_queue）解耦。
 """
+import logging
 import os
 import re
 import sys
+import tempfile
 import time
+from logging.handlers import RotatingFileHandler
 
 import webview
 
@@ -27,6 +30,23 @@ from config_store import ConfigStore
 from task_queue import TaskQueue
 
 SECRET_MASKS = ("", "****", "********", "*" * 8)
+
+
+def _setup_logging():
+    """日志写到 exe 同目录 app.log（滚动 2MB×3）；目录只读时回退 %TEMP%，绝不因日志失败而崩"""
+    fmt = "%(asctime)s [%(threadName)s] %(levelname)s %(message)s"
+    candidates = (
+        os.path.join(os.path.dirname(get_config_path()), "app.log"),
+        os.path.join(tempfile.gettempdir(), "md2feishu2md-app.log"),
+    )
+    for path in candidates:
+        try:
+            handler = RotatingFileHandler(path, maxBytes=2_000_000, backupCount=2, encoding="utf-8")
+        except OSError:
+            continue
+        logging.basicConfig(level=logging.DEBUG, format=fmt, handlers=[handler])
+        break
+    logging.getLogger("md2feishu2md").info("应用启动")
 
 
 def get_config_path():
@@ -62,13 +82,15 @@ def _extract_title(blocks):
     return None
 
 
+_window_ref = None  # 模块级窗口引用（供文件对话框等）。绝不能挂在 Api 实例上：pywebview 会递归遍历 js_api 属性，window.native(.NET 控件)会无限递归导致卡死
+
+
 class Api:
     def __init__(self):
         self.config = ConfigStore(get_config_path())
         self.config.load()
         self.client = None
         self.queue = None
-        self.window = None  # 供 evaluate_js 推送（如需）
 
     # ------------------------------------------------------------ 内部
     def _get_client(self):
@@ -96,10 +118,16 @@ class Api:
     # ------------------------------------------------------------ 连接
     def test_connection(self):
         """测试凭据：尝试获取 tenant token"""
+        log = logging.getLogger("md2feishu2md")
+        log.info("test_connection 开始")
         try:
-            self._get_client()._headers()
+            client = self._get_client()
+            log.info("_get_client 完成")
+            client._headers()
+            log.info("_headers 完成，token OK")
             return {"ok": True}
         except Exception as e:
+            log.error("test_connection 异常: %r", e)
             return self._err(e)
 
     # ------------------------------------------------------------ 正向转换
@@ -276,9 +304,9 @@ class Api:
 
     # ------------------------------------------------------------ 文件对话框
     def _win(self):
-        """返回当前窗口（优先 self.window，兜底全局首个窗口）"""
-        if self.window is not None:
-            return self.window
+        """返回当前窗口（优先模块级引用，兜底全局首个窗口）"""
+        if _window_ref is not None:
+            return _window_ref
         return webview.windows[0] if webview.windows else None
 
     def open_file_dialog(self):
@@ -313,11 +341,13 @@ class Api:
 
 
 def main():
+    _setup_logging()
     api = Api()
     window = webview.create_window(
         "md2feishu2md", get_ui_path(), js_api=api, width=1100, height=760, min_size=(900, 600)
     )
-    api.window = window  # 供后续 evaluate_js 推送（如需）
+    global _window_ref
+    _window_ref = window  # 模块级引用，供文件对话框取窗口；勿赋给 api（见 _window_ref 注释）
     webview.start()
 
 

@@ -41,6 +41,8 @@ class Task:
 
 
 class TaskQueue:
+    _serializable = False  # 阻止 pywebview js_bridge 暴露内部方法（submit/shutdown 等）
+
     def __init__(self, max_workers=3, on_change=None):
         if max_workers < 1:
             raise ValueError("max_workers 必须 >= 1")

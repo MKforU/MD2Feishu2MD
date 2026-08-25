@@ -2,7 +2,9 @@
 (function () {
   "use strict";
 
-  const api = window.pywebview && window.pywebview.api ? window.pywebview.api : null;
+  // pywebview 的 API 对象在页面加载完成后才注入（_pywebviewready 事件）。
+  // 在页面加载时直接取 window.pywebview.api 会得到 null，导致所有按钮静默失效。
+  let api = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -338,5 +340,14 @@
     await loadDestTree();
   }
 
-  init();
+  // pywebview 注入完成后触发；比 window.onload 更可靠（两者都监听）
+  function bindApi() {
+    if (window.pywebview && window.pywebview.api) {
+      api = window.pywebview.api;
+      init();
+    }
+  }
+  window.addEventListener("pywebviewready", bindApi);
+  // 兜底：某些情况下事件先于本脚本执行（脚本被 defer/放到 body 尾部时）
+  bindApi();
 })();

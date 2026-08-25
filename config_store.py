@@ -16,6 +16,8 @@ HISTORY_LIMIT = 50  # 历史记录上限（最近 N 条转换）
 
 
 class ConfigStore:
+    _serializable = False  # 阻止 pywebview js_bridge 把内部方法（含 get_credentials 明文）暴露给前端
+
     def __init__(self, path="config.json"):
         self.path = path
         self._config = None

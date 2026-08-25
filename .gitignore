@@ -15,6 +15,7 @@ dist/
 # 测试/临时
 .pytest_cache/
 *.egg-info/
+app.log
 
 # 系统
 .DS_Store

@@ -100,6 +100,8 @@ def get_credentials(config_path="config.json"):
 
 
 class FeishuClient:
+    _serializable = False  # 阻止 pywebview js_bridge 暴露内部方法（app_secret 在实例上）
+
     def __init__(self, app_id, app_secret, limiter=None):
         self.app_id = app_id
         self.app_secret = app_secret
@@ -111,13 +113,18 @@ class FeishuClient:
     # ------------------------------------------------------------ token
     def _headers(self):
         """获取带缓存的请求头（tenant_access_token 有效期约 2h，提前 5 分钟刷新）"""
+        import logging
+
+        log = logging.getLogger("md2feishu2md")
         now = time.monotonic()
         if self._token and now < self._token_expire:
             return {"Authorization": f"Bearer {self._token}"}
+        log.info("_headers 尝试获取 token（等锁）")
         with self._token_lock:
             # double-check：拿到锁后可能已被其他线程刷新
             if self._token and time.monotonic() < self._token_expire:
                 return {"Authorization": f"Bearer {self._token}"}
+            log.info("_headers 发 token 请求")
             try:
                 r = httpx.post(
                     f"{API}/auth/v3/tenant_access_token/internal",
@@ -125,7 +132,9 @@ class FeishuClient:
                     timeout=15,
                 ).json()
             except httpx.HTTPError as e:
+                log.error("token 请求网络异常: %r", e)
                 raise FeishuError("NETWORK_ERROR", f"获取 token 失败: {e}") from e
+            log.info("token 请求返回 code=%s", r.get("code"))
             if r.get("code") != 0:
                 raise FeishuError(r.get("code"), r.get("msg", "获取 token 失败"))
             self._token = r["tenant_access_token"]
