@@ -214,15 +214,25 @@ class Api:
 
     # ------------------------------------------------------------ 目标路径
     def list_dest_tree(self):
-        """目标路径树：知识库 + 云空间文件夹（供前端选择器）"""
+        """目标路径第一层：知识库列表 + 根目录文件夹（不递归节点树，避免大量请求卡顿）。
+
+        深层路径（知识库>节点、子文件夹）走「手动输入」文本框，由 create_doc_in_dest 解析。
+        """
         try:
             client = self._get_client()
             wiki = []
             try:
-                wiki = client.list_wiki_tree()
+                wiki = [
+                    {"name": (s.get("name") or "").strip(), "space_id": s.get("space_id")}
+                    for s in client.list_wiki_spaces()
+                ]
             except FeishuError:
                 pass  # 无知识库权限时忽略
-            folders = client.list_folder_tree()
+            folders = [
+                {"name": f.get("name"), "token": f.get("token")}
+                for f in client.list_folder_children("")
+                if f.get("type") == "folder"
+            ]
             return {"ok": True, "wiki": wiki, "folders": folders}
         except Exception as e:
             return self._err(e)
