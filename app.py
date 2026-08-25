@@ -63,10 +63,17 @@ def get_ui_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "index.html")
 
 
-def _extract_doc_id(url):
-    """从飞书文档链接提取 doc_id（支持 /docx/{id} 形式）"""
-    m = re.search(r"/docx/([A-Za-z0-9_-]+)", url)
-    return m.group(1) if m else None
+def _extract_doc_ref(url):
+    """从飞书链接提取文档引用。返回 ("docx", id) / ("wiki", node_token) / None"""
+    if not url:
+        return None
+    m = re.search(r"/docx/([A-Za-z0-9]+)", url)
+    if m:
+        return ("docx", m.group(1))
+    m = re.search(r"/wiki/([A-Za-z0-9]+)", url)
+    if m:
+        return ("wiki", m.group(1))
+    return None
 
 
 def _extract_title(blocks):
@@ -215,12 +222,24 @@ class Api:
 
     # ------------------------------------------------------------ 反向转换
     def convert_back(self, url, out_dir):
-        """飞书文档 → 本地 md（同步阻塞）。返回 {"ok", "path"} 或错误"""
+        """飞书文档 → 本地 md（同步阻塞）。支持 /docx/{id} 与 /wiki/{node_token} 链接"""
         try:
             client = self._get_client()
-            doc_id = _extract_doc_id(url or "")
-            if not doc_id:
-                return {"ok": False, "error": "无法从链接解析文档 ID（需包含 /docx/{id}）"}
+            ref = _extract_doc_ref(url or "")
+            if not ref:
+                return {"ok": False, "error": "无法从链接解析文档 ID（需为 /docx/{id} 或 /wiki/{token} 链接）"}
+
+            kind, token = ref
+            if kind == "wiki":
+                node = client.get_wiki_node(token)
+                obj_token, obj_type = node.get("obj_token"), node.get("obj_type")
+                if obj_type and obj_type != "docx":
+                    return {"ok": False, "error": f"该知识库节点不是文档（obj_type={obj_type}），暂不支持"}
+                if not obj_token:
+                    return {"ok": False, "error": "知识库节点解析失败：未返回 obj_token"}
+                doc_id = obj_token
+            else:
+                doc_id = token
 
             blocks = client.read_blocks(doc_id)
             md_text, image_refs = render_document(blocks)

@@ -391,6 +391,13 @@ class FeishuClient:
                 return nodes
             page = data["data"].get("page_token")
 
+    def get_wiki_node(self, node_token):
+        """通过 node_token 查询知识库节点信息（含 obj_token/obj_type，用于 /wiki/ 链接反查文档）"""
+        data = self._json(self._request(
+            "GET", f"{API}/wiki/v2/spaces/get_node", params={"token": node_token},
+        ))
+        return data["data"].get("node", {}) or {}
+
     def list_folder_children(self, folder_token=""):
         """列出云空间文件夹内容（folder_token 空串 = 根目录）"""
         files, page = [], None
