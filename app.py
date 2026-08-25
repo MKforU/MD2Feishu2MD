@@ -116,15 +116,19 @@ class Api:
         return {"ok": False, "error": repr(e)}
 
     # ------------------------------------------------------------ 连接
-    def test_connection(self):
-        """测试凭据：尝试获取 tenant token"""
+    def test_connection(self, app_id=None, app_secret=None):
+        """测试凭据：优先用传入值（不落盘不缓存）；未传则用已保存配置。返回 {"ok"}"""
         log = logging.getLogger("md2feishu2md")
-        log.info("test_connection 开始")
+        log.info("test_connection 开始（%s）", "传入凭据" if app_id else "已保存凭据")
         try:
-            client = self._get_client()
-            log.info("_get_client 完成")
-            client._headers()
-            log.info("_headers 完成，token OK")
+            if app_id:
+                # 临时 client，只验证凭据有效性，绝不写入 config 或缓存
+                FeishuClient(app_id.strip(), (app_secret or "").strip())._headers()
+            else:
+                client = self._get_client()
+                log.info("_get_client 完成")
+                client._headers()
+                log.info("_headers 完成，token OK")
             return {"ok": True}
         except Exception as e:
             log.error("test_connection 异常: %r", e)

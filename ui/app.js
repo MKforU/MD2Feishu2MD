@@ -284,7 +284,10 @@
   });
 
   $("btn-test-conn").addEventListener("click", async () => {
-    const r = await api.test_connection();
+    // 优先用输入框当前值测试（不落盘）；输入框为空才用已保存配置
+    const appId = $("set-app-id").value.trim();
+    const appSecret = $("set-app-secret").value;
+    const r = await api.test_connection(appId || null, appSecret || null);
     if (r.ok) {
       showResult($("settings-result"), true, "连接成功", "凭据有效");
       updateCredStatus(true);
