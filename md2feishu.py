@@ -83,8 +83,10 @@ def inline_elements(text):
             els.append(text_run(t[1:-1], code=True))
         elif t.startswith("["):
             lm = LINK_RE.match(t)
-            # 锚点链接（#xxx）不是合法 URL，飞书会报 1770006 schema mismatch，降级为纯文本
-            if lm and not lm.group(2).startswith("#"):
+            # 仅当 URL 合法（非锚点 #xxx、含 :// 协议头）才包 link 样式；
+            # 其余（锚点、相对路径如 Pytorch/wps1.jpg）降级纯文本，
+            # 否则飞书报 1770006 schema mismatch
+            if lm and not lm.group(2).startswith("#") and "://" in lm.group(2):
                 els.append(text_run(lm.group(1), link=lm.group(2)))
             elif lm:
                 els.append(text_run(lm.group(1)))
