@@ -115,6 +115,19 @@ def is_table_separator(line):
     return bool(re.fullmatch(r"[\s:|-]+", body)) and "-" in body
 
 
+def _common_indent(lines):
+    """返回代码块所有非空行的最长公共前导缩进（\t 或空格组成的串）。无公共缩进返回 ''"""
+    indents = [l[:len(l) - len(l.lstrip("\t "))] for l in lines if l.strip()]
+    if not indents:
+        return ""
+    common = indents[0]
+    for ind in indents[1:]:
+        # 逐个缩短到是所有人前缀为止
+        while common and not ind.startswith(common):
+            common = common[:-1]
+    return common
+
+
 def parse_md(path):
     """逐行解析 md → 块 item 列表"""
     lines = open(path, encoding="utf-8").read().splitlines()
@@ -123,21 +136,33 @@ def parse_md(path):
     def flush_code():
         nonlocal code_buf
         if code_buf or code_lang:
-            items.append({"kind": "code", "lang": code_lang, "text": "\n".join(code_buf)})
+            text = "\n".join(code_buf)
+            # 缩进围栏（Typora 导出风格 \t```python）内容带公共前缀，剥掉它：
+            # 围栏行的缩进 = 公共缩进，超出部分是代码自身的缩进，必须保留
+            if code_buf and (code_buf[0].startswith("\t") or code_buf[0].startswith(" ")):
+                common = _common_indent(code_buf)
+                if common:
+                    text = "\n".join(l[len(common):] if l.startswith(common) else l.lstrip() for l in code_buf)
+            items.append({"kind": "code", "lang": code_lang, "text": text})
             code_buf = []
 
     while i < len(lines):
         line = lines[i]
-        if line.strip().startswith("```"):
-            in_code = not in_code
-            if in_code:
-                code_lang = line.strip()[3:].strip()
-            else:
+        stripped = line.strip()
+        if in_code:
+            if stripped == "```":
+                # 只有裸 ``` 才能闭合。```lang 形式只当开围栏：
+                # 防止"作者忘写闭合围栏"时后续 ```lang 被误判为闭合，
+                # 造成代码/正文边界级联错位（实测 Pytorch.md 2211-2229 行案例）
                 flush_code()
+                in_code = False
+            else:
+                code_buf.append(line)
             i += 1
             continue
-        if in_code:
-            code_buf.append(line)
+        if stripped.startswith("```"):
+            in_code = True
+            code_lang = stripped[3:].strip()
             i += 1
             continue
 
