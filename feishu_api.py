@@ -250,18 +250,21 @@ class FeishuClient:
         """三步上传图片并绑定到图片块。
 
         img_slots: [(src, block_id), ...]，src 为本地相对路径或 http(s) 外链。
-        返回成功数量。
+        返回 {"ok": 成功数, "total": 总数, "failures": [{"src": 路径, "reason": 原因}]}。
         """
         ok = 0
+        failures = []
         for src, bid in img_slots:
             tmp_path = None
             try:
                 if src.startswith("http"):
                     try:
                         resp = httpx.get(src, timeout=30, follow_redirects=True)
-                    except httpx.HTTPError:
-                        continue  # 外链下载失败，跳过该图
+                    except httpx.HTTPError as e:
+                        failures.append({"src": src, "reason": f"外链下载失败: {e.__class__.__name__}"})
+                        continue
                     if resp.status_code != 200:
+                        failures.append({"src": src, "reason": f"外链返回 HTTP {resp.status_code}"})
                         continue
                     ext = _guess_ext(resp.headers.get("content-type", ""), src)
                     tmp_path = os.path.join(tempfile.gettempdir(), f"md2feishu_{bid}.{ext}")
@@ -272,6 +275,7 @@ class FeishuClient:
                     img_path = src if os.path.isabs(src) else os.path.join(md_dir, src)
                     name = os.path.basename(img_path)
                 if not os.path.exists(img_path):
+                    failures.append({"src": src, "reason": "文件不存在"})
                     continue
                 # 第 2 步：上传 media，parent_node 必须是图片块自身 block_id（不是 doc_id）
                 with open(img_path, "rb") as f:
@@ -287,12 +291,12 @@ class FeishuClient:
                     doc_id, [{"block_id": bid, "replace_image": {"token": udata["data"]["file_token"]}}],
                 )
                 ok += 1
-            except (FeishuError, OSError, KeyError):
-                continue  # 单张失败跳过，不中断整批
+            except (FeishuError, OSError, KeyError) as e:
+                failures.append({"src": src, "reason": f"{e.__class__.__name__}: {e}"})
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-        return ok
+        return {"ok": ok, "total": len(img_slots), "failures": failures}
 
     # ------------------------------------------------------------ 读块
     def read_blocks(self, doc_id):
@@ -337,10 +341,12 @@ class FeishuClient:
     def download_images(self, image_refs, out_dir):
         """批量下载图片。image_refs 来自 feishu2md.render_document。
 
-        返回 {原名: 真实文件名}，调用方据此更新 md 文本中的图片链接。
+        返回 (mapping, failures)：mapping = {原名: 真实文件名}（调用方据此更新 md 链接），
+        failures = [{"name": 名, "reason": 原因}]。
         """
         os.makedirs(out_dir, exist_ok=True)
         mapping = {}
+        failures = []
         for ref in image_refs:
             token = ref["file_token"]
             name = ref["name"]
@@ -348,9 +354,10 @@ class FeishuClient:
             try:
                 real_path, _ = self.download_image(token, save_path)
                 mapping[name] = os.path.basename(real_path)
-            except FeishuError:
+            except (FeishuError, OSError) as e:
                 mapping[name] = name  # 下载失败保留原占位
-        return mapping
+                failures.append({"name": name, "reason": f"{e.__class__.__name__}: {e}"})
+        return mapping, failures
 
     # ------------------------------------------------------------ 删除文档
     def delete_doc(self, doc_id):

@@ -181,11 +181,21 @@ class Api:
                         flush()
             flush()
 
+            img_summary = None
             if img_slots:
-                client.upload_images(doc_id, img_slots, md_dir)
+                img_summary = client.upload_images(doc_id, img_slots, md_dir)
 
             self.config.add_history({"title": title, "url": url, "time": int(time.time())})
-            return {"ok": True, "url": url}
+            result = {"ok": True, "url": url}
+            if img_summary and img_summary["failures"]:
+                names = "、".join(f["src"] for f in img_summary["failures"][:5])
+                more = len(img_summary["failures"]) - 5
+                suffix = f" 等 {more} 张" if more > 0 else ""
+                result["warning"] = (
+                    f"图片 {img_summary['ok']}/{img_summary['total']} 张上传成功，"
+                    f"失败: {names}{suffix}（文档中会留空图占位）"
+                )
+            return result
         except Exception as e:
             return self._err(e)
 
@@ -194,6 +204,9 @@ class Api:
         r = self.convert_md(path, title, dest)
         if not r.get("ok"):
             raise RuntimeError(r.get("error", "转换失败"))
+        # 图片部分失败不判任务失败，但要把 warning 带给前端
+        if r.get("warning"):
+            r["error"] = r["warning"]  # task_queue 的 error 字段用于展示，成功态也显示
         return r
 
     def convert_batch(self, paths, dest):
@@ -246,8 +259,9 @@ class Api:
 
             out_dir = out_dir or self.config.get_default_out_dir() or os.getcwd()
             os.makedirs(out_dir, exist_ok=True)
+            img_failures = []
             if image_refs:
-                mapping = client.download_images(image_refs, out_dir)
+                mapping, img_failures = client.download_images(image_refs, out_dir)
                 for old_name, real_name in mapping.items():
                     if old_name != real_name:
                         md_text = md_text.replace(f"images/{old_name}", f"images/{real_name}")
@@ -259,7 +273,13 @@ class Api:
                 f.write(md_text)
 
             self.config.add_history({"title": title, "path": md_path, "time": int(time.time())})
-            return {"ok": True, "path": md_path}
+            result = {"ok": True, "path": md_path}
+            if img_failures:
+                names = "、".join(f["name"] for f in img_failures[:5])
+                more = len(img_failures) - 5
+                suffix = f" 等 {more} 张" if more > 0 else ""
+                result["warning"] = f"图片下载失败 {len(img_failures)} 张: {names}{suffix}（md 中保留占位引用）"
+            return result
         except Exception as e:
             return self._err(e)
 

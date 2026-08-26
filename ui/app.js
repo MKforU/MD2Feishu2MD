@@ -38,6 +38,12 @@
     el.appendChild(div);
     return div;
   }
+  function appendWarning(el, text) {
+    const p = document.createElement("p");
+    p.className = "warn-line";
+    p.textContent = "⚠ " + text;
+    el.appendChild(p);
+  }
   function hideResult(el) { el.classList.add("hidden"); }
 
   function copyText(text) {
@@ -123,6 +129,7 @@
       if (r.ok) {
         const card = showResult($("convert-result"), true, "转换成功");
         appendLink(card, r.url);
+        if (r.warning) appendWarning(card, r.warning);
         const actions = appendActions(card);
         const open = document.createElement("a");
         open.href = r.url; open.target = "_blank"; open.textContent = "打开文档";
@@ -169,6 +176,12 @@
           err.textContent = f.error;
           li.appendChild(err);
         }
+      } else if (f.status === "success" && f.error) {
+        // 成功但有警告（如部分图片上传失败），warning 借道 error 字段展示
+        const warn = document.createElement("span");
+        warn.className = "err warn-line";
+        warn.textContent = "⚠ " + f.error;
+        li.appendChild(warn);
       }
       ul.appendChild(li);
     });
@@ -261,7 +274,8 @@
     try {
       const r = await api.convert_back(url, out || null);
       if (r.ok) {
-        showResult($("reverse-result"), true, "转换成功", "保存至：" + r.path);
+        const card = showResult($("reverse-result"), true, "转换成功", "保存至：" + r.path);
+        if (r.warning) appendWarning(card, r.warning);
       } else {
         showResult($("reverse-result"), false, "转换失败", r.error || "");
       }

@@ -123,6 +123,7 @@ input[readonly] { background: #f0f1f3; }
 .badge.success { background: #e6f9ec; color: var(--success); }
 .badge.failed { background: #ffeceb; color: var(--danger); }
 .task-list .err { color: var(--danger); font-size: 12px; }
+.task-list .warn-line, .result-card .warn-line { color: var(--warning); font-size: 12px; }
 
 /* 状态栏 */
 .statusbar {
