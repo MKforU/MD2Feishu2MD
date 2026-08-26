@@ -203,7 +203,12 @@ class FeishuClient:
         return self._json(resp)["data"]["children"]
 
     def create_table(self, doc_id, item):
-        """表格两步创建：先建空表（接口上限 9x9），超限逐行/列扩，再逐格填 text"""
+        """表格两步创建：先建空表（接口上限 9x9），超限逐行/列扩，再批量填 text。
+
+        飞书新建空表时每个 cell 已自带一个空 text block，直接批量
+        update_text_elements 更新其内容——比逐格 POST children 快一个数量级，
+        且不产生多余空块（实测逐格方式会在每个 cell 残留一个空块）。
+        """
         rows = item["rows"]
         n_rows = len(rows)
         n_cols = max(len(r) for r in rows)
@@ -219,19 +224,36 @@ class FeishuClient:
         for _ in range(n_cols - 9):
             self._batch_update(doc_id, [{"block_id": tid, "insert_table_column": {"column_index": -1}}])
 
-        # 扩表后 cells 已变，重新拉取
+        # 扩表后 cells 已变，重新拉取表格块拿 cells（一维扁平 cell block_id 数组）
         data = self._get_block(doc_id, tid)
         cells = data["data"]["block"]["table"]["cells"]
 
+        # 建立 cell block_id → 自带 text block_id 映射（新建空表每个 cell 自带一个空 text block）
+        cell_to_text = {}
+        for b in self.read_blocks(doc_id):
+            if b.get("block_type") == 32:  # table_cell
+                ch = b.get("children") or []
+                if ch:
+                    cell_to_text[b["block_id"]] = ch[0]
+
+        # 批量填充：update_text_elements 更新自带 text block；无自带块的 cell 回退逐格新建
+        requests = []
         for ri, row in enumerate(rows):
             for ci in range(n_cols):
                 txt = row[ci] if ci < len(row) else ""
                 cell_id = cells[ri * n_cols + ci]
-                self._request(
-                    "POST", f"{API}/docx/v1/documents/{doc_id}/blocks/{cell_id}/children",
-                    json={"children": [{"block_type": 2, "text": {"elements": inline_elements(txt)}}],
-                          "index": -1},
-                )
+                elements = inline_elements(txt)
+                text_id = cell_to_text.get(cell_id)
+                if text_id:
+                    requests.append({"block_id": text_id, "update_text_elements": {"elements": elements}})
+                else:
+                    self._request(
+                        "POST", f"{API}/docx/v1/documents/{doc_id}/blocks/{cell_id}/children",
+                        json={"children": [{"block_type": 2, "text": {"elements": elements}}], "index": -1},
+                    )
+        # batch_update 单次上限 100 个 request，分批发送
+        for i in range(0, len(requests), 100):
+            self._batch_update(doc_id, requests[i:i + 100])
         return tid
 
     def _batch_update(self, doc_id, requests):
