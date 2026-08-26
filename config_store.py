@@ -91,6 +91,14 @@ class ConfigStore:
     def set_default_out_dir(self, d):
         self.set("default_out_dir", d)
 
+    # ------------------------------------------------------------ 文档归属
+    def get_owner_open_id(self, default=""):
+        """转换后转移文档所有权给的用户 open_id（空 = 不转移，文档归应用）"""
+        return self.get("owner_open_id", default) or default
+
+    def set_owner_open_id(self, open_id):
+        self.set("owner_open_id", (open_id or "").strip())
+
     # ------------------------------------------------------------ 历史记录
     def get_history(self) -> list:
         h = self.get("history", [])

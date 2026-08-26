@@ -315,7 +315,8 @@
     const appSecret = $("set-app-secret").value;
     const concurrency = parseInt(concurrencyInput.value, 10);
     const outDir = $("set-outdir").value.trim();
-    const r = await api.set_config(appId, appSecret, concurrency, outDir);
+    const ownerOpenId = $("set-owner-openid").value.trim();
+    const r = await api.set_config(appId, appSecret, concurrency, outDir, ownerOpenId);
     if (r.ok) {
       showResult($("settings-result"), true, "已保存", "配置已保存");
       $("set-app-secret").value = "";
@@ -345,6 +346,7 @@
       $("set-concurrency-val").textContent = cfg.concurrency;
     }
     if (cfg.default_out_dir) $("set-outdir").value = cfg.default_out_dir;
+    if (cfg.owner_open_id) $("set-owner-openid").value = cfg.owner_open_id;
   }
 
   // ------------------------------------------------------------ 初始化

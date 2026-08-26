@@ -367,6 +367,18 @@ class FeishuClient:
         )
         self._json(resp)
 
+    def transfer_owner(self, doc_id, open_id):
+        """把文档所有权转移给指定用户 open_id。
+
+        应用创建的文档默认归应用，用户端无法删除/移动；转移后文档归用户。
+        """
+        self._json(self._request(
+            "POST",
+            f"{API}/drive/v1/permissions/{doc_id}/members/transfer_owner",
+            params={"type": "docx", "need_notification": "false"},
+            json={"member_type": "openid", "member_id": open_id, "perm": "full_access"},
+        ))
+
     # ------------------------------------------------------------ 目标路径定位
     def list_wiki_spaces(self):
         """列出知识库列表"""

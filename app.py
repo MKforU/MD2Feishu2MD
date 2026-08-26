@@ -195,6 +195,16 @@ class Api:
                     f"图片 {img_summary['ok']}/{img_summary['total']} 张上传成功，"
                     f"失败: {names}{suffix}（文档中会留空图占位）"
                 )
+            owner = self.config.get_owner_open_id()
+            if owner:
+                try:
+                    client.transfer_owner(doc_id, owner)
+                except Exception as e:
+                    prev = result.get("warning") or ""
+                    result["warning"] = (
+                        (prev + "；" if prev else "")
+                        + f"文档所有权转移失败（{e}），文档归应用，你可到设置页确认 open_id"
+                    )
             return result
         except Exception as e:
             return self._err(e)
@@ -316,9 +326,10 @@ class Api:
             "app_secret": "****" if app_secret else "",  # 掩码，不返回明文
             "concurrency": self.config.get_concurrency(),
             "default_out_dir": self.config.get_default_out_dir(),
+            "owner_open_id": self.config.get_owner_open_id(),
         }
 
-    def set_config(self, app_id=None, app_secret="", concurrency=None, default_out_dir=None):
+    def set_config(self, app_id=None, app_secret="", concurrency=None, default_out_dir=None, owner_open_id=None):
         """保存配置。app_id=None 表示不改凭据；app_id="" 表示清空凭据；
         app_secret 为掩码或空时保留原 secret（除非 app_id 变了）"""
         try:
@@ -338,6 +349,8 @@ class Api:
                 self.queue = None
             if default_out_dir is not None:
                 self.config.set_default_out_dir(default_out_dir)
+            if owner_open_id is not None:
+                self.config.set_owner_open_id(owner_open_id)
             return {"ok": True}
         except Exception as e:
             return self._err(e)

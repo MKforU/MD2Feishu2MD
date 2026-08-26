@@ -14,6 +14,9 @@ class _FakeCfg:
     def get_default_out_dir(self):
         return None
 
+    def get_owner_open_id(self):
+        return ""
+
     def add_history(self, h):
         pass
 
