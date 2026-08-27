@@ -187,36 +187,53 @@ def parse_md(path):
             items.append({"kind": "image", "src": m.group(2)})
             i += 1
             continue
-        if s.startswith("$$"):
-            # 块级公式 $$...$$（display math）
-            m = re.match(r"^\$\$(.+?)\$\$\s*$", s)
+        # 块级公式：$$...$$ 或 $...$（内容可跨软换行，Shift+Enter 产生 \n）
+        marker = "$$" if s.startswith("$$") else ("$" if s.startswith("$") else None)
+        if marker:
+            # 1) 单行闭合：$$...$$ / $...$（整行，无尾随文本）
+            m = re.match(r"^" + re.escape(marker) + r"(.+?)" + re.escape(marker) + r"\s*$", s)
             if m and m.group(1).strip():
-                # 纯单行块级公式：$$...$$（整行，无尾随文本）
                 items.append({"kind": "equation", "text": m.group(1).strip()})
                 i += 1
                 continue
-            if s == "$$":
-                # 多行块级公式：$$ 独占一行开始，收集到下一个独占 $$
+            # 2) 独占行 marker（$$ 或 $ 单独一行）→ 多行收集到下一个独占 marker 行
+            if s.strip() == marker:
                 eq_lines = []
                 i += 1
-                while i < len(lines) and lines[i].strip() != "$$":
-                    eq_lines.append(lines[i].strip())
+                while i < len(lines) and lines[i].strip() != marker:
+                    eq_lines.append(lines[i])
                     i += 1
-                i += 1  # 跳过结尾 $$
-                eq_text = "\n".join(eq_lines).strip()
-                if eq_text:
-                    items.append({"kind": "equation", "text": eq_text})
+                i += 1  # 跳过闭合独占行
+                joined = "\n".join(eq_lines).strip()
+                if joined:
+                    items.append({"kind": "equation", "text": joined})
                 continue
-            # $$ 开头但非纯块级公式（尾随文本 / 空公式 $$/$$$$）→ 落到下方普通 text，
-            # 由 inline_elements 按行内公式处理，避免丢数据
-        elif s.startswith("$"):
-            # 单 $ 包裹的块级公式（独占一行，Typora 风格）：$...$
-            m = re.match(r"^\$(.+?)\$\s*$", s)
-            if m and m.group(1).strip():
-                items.append({"kind": "equation", "text": m.group(1).strip()})
-                i += 1
-                continue
-            # $ 开头但非纯公式（尾随文本等）→ 落到下方普通 text
+            # 3) 跨软换行闭合：去掉开标记后不含闭合标记、且开头像公式（防 $5 货币、中文说明误判）→
+            #    收集到行尾出现闭合 marker 的那一行（align 等公式用 Shift+Enter 分段）
+            body = s[len(marker):]
+            if (body and marker not in body
+                    and (("a" <= body[0] <= "z") or ("A" <= body[0] <= "Z")
+                         or body[0] in "\\{[(^_+-")):
+                eq_lines = [s]
+                j = i + 1
+                closed = False
+                while j < len(lines):
+                    cur = lines[j].rstrip()
+                    eq_lines.append(cur)
+                    j += 1
+                    if cur.endswith(marker):
+                        closed = True
+                        break
+                if closed:
+                    joined = "\n".join(eq_lines)
+                    joined = joined[len(marker):] if joined.startswith(marker) else joined
+                    if joined.endswith(marker):
+                        joined = joined[:-len(marker)]
+                    if joined.strip():
+                        items.append({"kind": "equation", "text": joined.strip()})
+                    i = j
+                    continue
+            # 否则（尾随文本 / 货币 $5 / 空公式）→ 落到下方普通 text，由 inline 处理
         m = re.match(r"^(#{1,9})\s+(.*)", s)
         if m:
             items.append({"kind": "heading", "level": len(m.group(1)), "text": m.group(2)})

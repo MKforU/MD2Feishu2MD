@@ -125,3 +125,47 @@ def test_single_dollar_block_equation():
     assert eqs[0]["text"] == "\\mathbb{E}[x]=\\sum_x x p(x)"
     child = item_to_child(eqs[0])
     assert child["text"]["elements"] == [{"equation": {"content": "\\mathbb{E}[x]=\\sum_x x p(x)"}}]
+
+
+def test_single_dollar_block_softbreak():
+    """单 $ 块级公式内容含软换行（Shift+Enter）→ 收集为单个 equation"""
+    md = "$\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}$\n"
+    items = parse_md_text(md)
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert len(eqs) == 1, items
+    assert "\\begin{aligned}" in eqs[0]["text"]
+    assert "c &= d" in eqs[0]["text"]
+
+
+def test_dollar_dollar_block_softbreak():
+    """$$ 紧跟内容跨软换行 → 收集为单个 equation"""
+    md = "$$\\begin{aligned}\na &= b\n\\end{aligned}$$\n"
+    items = parse_md_text(md)
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert len(eqs) == 1, items
+    assert "\\begin{aligned}" in eqs[0]["text"]
+    assert "a &= b" in eqs[0]["text"]
+
+
+def test_single_dollar_own_line_multiline():
+    """单 $ 独占行包裹的多行公式 → equation"""
+    items = parse_md_text("$\nE = mc^2\n$\n")
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert len(eqs) == 1, items
+    assert eqs[0]["text"] == "E = mc^2"
+
+
+def test_chinese_note_after_dollar_not_swallowed():
+    """$$ 后紧跟中文说明（非公式）→ 不跨行吞后续内容，落为普通 text"""
+    items = parse_md_text("$$公式说明：\n下面这段是正文\n")
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert eqs == [], f"中文说明不应误判为公式: {eqs}"
+    texts = " ".join(it["text"] for it in items if it["kind"] == "text")
+    assert "正文" in texts, "正文不能被吞进公式"
+
+
+def test_currency_after_dollar_not_swallowed():
+    """$ 后紧跟数字（货币 $5）→ 不跨行收集，落为普通 text"""
+    items = parse_md_text("$5 和 $10\n")
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert eqs == [], items
