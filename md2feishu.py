@@ -48,7 +48,7 @@ INLINE_RE = re.compile(
     r"|`[^`\n]+`"                             # `code`
     r"|\[[^\]\n]+\]\([^)\n]+\)"               # [text](url)
     r"|\$\$[^$\n]+\$\$"                       # $$...$$ 行内公式
-    r"|(?<!\$)\$[^$\s\n]+\$"                  # $...$ 行内公式（内容不含空白防货币误判；(?<!\$) 防不配对 $$ 误判）
+    r"|(?<!\$)\$[^\d\s$][^$\n]*\$"            # $...$ 行内公式（首字符非数字防货币误判；允许内部空格）
     ")"
 )
 LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)\s]+)\)?")
@@ -209,6 +209,14 @@ def parse_md(path):
                 continue
             # $$ 开头但非纯块级公式（尾随文本 / 空公式 $$/$$$$）→ 落到下方普通 text，
             # 由 inline_elements 按行内公式处理，避免丢数据
+        elif s.startswith("$"):
+            # 单 $ 包裹的块级公式（独占一行，Typora 风格）：$...$
+            m = re.match(r"^\$(.+?)\$\s*$", s)
+            if m and m.group(1).strip():
+                items.append({"kind": "equation", "text": m.group(1).strip()})
+                i += 1
+                continue
+            # $ 开头但非纯公式（尾随文本等）→ 落到下方普通 text
         m = re.match(r"^(#{1,9})\s+(.*)", s)
         if m:
             items.append({"kind": "heading", "level": len(m.group(1)), "text": m.group(2)})

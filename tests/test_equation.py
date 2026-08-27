@@ -104,3 +104,24 @@ def test_dollar_dollar_dollar_dollar_not_swallow():
     assert eqs == [], items
     texts = [it for it in items if it["kind"] == "text"]
     assert any("正文内容" in it["text"] for it in texts), "正文不能被 $$$$ 吞掉"
+
+
+def test_inline_equation_with_spaces():
+    """含空格的行内公式（如 $a | s$、$\boxed{G_t = R_t + ...}$）应识别为公式"""
+    els = inline_elements("即 $a | s$ 表示")
+    assert {"equation": {"content": "a | s"}} in els, els
+
+
+def test_inline_equation_boxed_with_spaces():
+    els = inline_elements("$\\boxed{G_t = R_t + \\gamma R_{t+1} + \\cdots}$")
+    assert any("equation" in e and "G_t = R_t" in e["equation"]["content"] for e in els), els
+
+
+def test_single_dollar_block_equation():
+    """单 $ 包裹独占一行的公式（Typora 风格）→ 块级 equation"""
+    items = parse_md_text("$\\mathbb{E}[x]=\\sum_x x p(x)$\n")
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert len(eqs) == 1, items
+    assert eqs[0]["text"] == "\\mathbb{E}[x]=\\sum_x x p(x)"
+    child = item_to_child(eqs[0])
+    assert child["text"]["elements"] == [{"equation": {"content": "\\mathbb{E}[x]=\\sum_x x p(x)"}}]
