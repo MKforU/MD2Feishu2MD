@@ -2,13 +2,14 @@
 """md → 飞书块列表（纯函数，无网络依赖）
 
 支持：标题、行内格式（**粗体** / *斜体* / `行内代码` / ~~删除线~~ / [链接](url)）、
+数学公式（$...$ 行内 / $$...$$ 块级，转飞书 equation）、
 无序/有序/任务列表、引用、代码块（带语言高亮）、分割线、表格、图片。
 
 - ``parse_md(path) -> list[item]``  解析 md 文件为 item 列表
 - ``item_to_child(item) -> dict``   单个 item → 飞书 children JSON
 - ``inline_elements(text) -> list``  行内 markdown → 飞书 TextElement 列表
 
-item kind: heading / bullet / ordered / todo / quote / code / divider / table / image / text
+item kind: heading / bullet / ordered / todo / quote / code / divider / table / image / equation / text
 
 参考实现：C:\\Users\\13555\\.claude\\skills\\md-to-feishu-docx\\scripts\\md2feishu.py
 （此处仅保留纯转换部分，凭据/HTTP 在 feishu_api.py）
@@ -38,13 +39,16 @@ LANG = {
     "graphql": 71, "toml": 75,
 }
 
-# 顺序：粗体 → 斜体 → 删除线 → 行内代码 → 链接（内容不含同类标记，不支持嵌套）
+# 顺序：粗体 → 斜体 → 删除线 → 行内代码 → 链接 → 公式（$$ 优先于 $）
+# （内容不含同类标记，不支持嵌套）
 INLINE_RE = re.compile(
     r"(\*\*[^*\n]+\*\*"                      # **bold**
     r"|\*[^*\n]+\*"                           # *italic*
     r"|~~[^~\n]+~~"                           # ~~strike~~
     r"|`[^`\n]+`"                             # `code`
     r"|\[[^\]\n]+\]\([^)\n]+\)"               # [text](url)
+    r"|\$\$[^$\n]+\$\$"                       # $$...$$ 行内公式
+    r"|(?<!\$)\$[^$\s\n]+\$"                  # $...$ 行内公式（内容不含空白防货币误判；(?<!\$) 防不配对 $$ 误判）
     ")"
 )
 LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)\s]+)\)?")
@@ -92,6 +96,12 @@ def inline_elements(text):
                 els.append(text_run(lm.group(1)))
             else:
                 els.append(text_run(t))
+        elif t.startswith("$$"):
+            # 行内块级公式 $$...$$ → 飞书 equation 元素
+            els.append({"equation": {"content": t[2:-2].strip()}})
+        elif t.startswith("$"):
+            # 行内公式 $...$ → 飞书 equation 元素
+            els.append({"equation": {"content": t[1:-1].strip()}})
         else:
             els.append(text_run(t[1:-1], italic=True))
         pos = m.end()
@@ -177,6 +187,28 @@ def parse_md(path):
             items.append({"kind": "image", "src": m.group(2)})
             i += 1
             continue
+        if s.startswith("$$"):
+            # 块级公式 $$...$$（display math）
+            m = re.match(r"^\$\$(.+?)\$\$\s*$", s)
+            if m and m.group(1).strip():
+                # 纯单行块级公式：$$...$$（整行，无尾随文本）
+                items.append({"kind": "equation", "text": m.group(1).strip()})
+                i += 1
+                continue
+            if s == "$$":
+                # 多行块级公式：$$ 独占一行开始，收集到下一个独占 $$
+                eq_lines = []
+                i += 1
+                while i < len(lines) and lines[i].strip() != "$$":
+                    eq_lines.append(lines[i].strip())
+                    i += 1
+                i += 1  # 跳过结尾 $$
+                eq_text = "\n".join(eq_lines).strip()
+                if eq_text:
+                    items.append({"kind": "equation", "text": eq_text})
+                continue
+            # $$ 开头但非纯块级公式（尾随文本 / 空公式 $$/$$$$）→ 落到下方普通 text，
+            # 由 inline_elements 按行内公式处理，避免丢数据
         m = re.match(r"^(#{1,9})\s+(.*)", s)
         if m:
             items.append({"kind": "heading", "level": len(m.group(1)), "text": m.group(2)})
@@ -256,6 +288,9 @@ def item_to_child(item):
         return {"block_type": 22, "divider": {}}
     if kind == "image":
         return {"block_type": 27, "image": {}}
+    if kind == "equation":
+        # 块级公式：独立 text 块，elements 仅一个 equation 元素
+        return {"block_type": 2, "text": {"elements": [{"equation": {"content": item["text"]}}]}}
     if kind == "table":
         raise ValueError("table 块不能通过 item_to_child 转换，请用 feishu_api.create_table 两步创建")
     return {"block_type": 2, "text": {"elements": inline_elements(item["text"])}}
