@@ -105,6 +105,15 @@
   }
 
   // ------------------------------------------------------------ 转换 tab
+  $("btn-convert-clear").addEventListener("click", () => {
+    // 清空本页所有输入，方便转换下一个文档
+    $("convert-file").value = "";
+    $("convert-title").value = "";
+    $("convert-dest-manual").value = "";
+    $("convert-dest").value = "";
+    hideResult($("convert-result"));
+  });
+
   $("btn-pick-file").addEventListener("click", async () => {
     const p = await api.open_file_dialog();
     if (p) {
@@ -159,10 +168,22 @@
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = f.name;
+      const delBtn = document.createElement("button");
+      delBtn.className = "del-btn";
+      delBtn.title = "从列表删除";
+      delBtn.innerHTML = '<svg class="trash-svg" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">'
+        + '<path d="M8.5 2.5a1 1 0 0 0-.8.4l-.7.9H4.5a1.2 1.2 0 1 0 0 2.4h15a1.2 1.2 0 1 0 0-2.4h-2.5l-.7-.9a1 1 0 0 0-.8-.4h-7z"/>'
+        + '<path d="M5.6 8h12.8l-.9 11.2a2.4 2.4 0 0 1-2.4 2.2H8.9a2.4 2.4 0 0 1-2.4-2.2L5.6 8z"/>'
+        + '<rect x="9" y="10.5" width="1.6" height="8" rx="0.8"/>'
+        + '<rect x="11.2" y="10.5" width="1.6" height="8" rx="0.8"/>'
+        + '<rect x="13.4" y="10.5" width="1.6" height="8" rx="0.8"/>'
+        + '</svg>';
+      delBtn.addEventListener("click", () => removeBatchItem(f));
+      li.appendChild(name);
+      li.appendChild(delBtn);
       const badge = document.createElement("span");
       badge.className = "badge " + f.status;
       badge.textContent = { pending: "排队", running: "进行中", success: "成功", failed: "失败" }[f.status] || f.status;
-      li.appendChild(name);
       li.appendChild(badge);
       if (f.status === "failed") {
         const retryBtn = document.createElement("button");
@@ -202,6 +223,13 @@
     batchFiles = [];
     renderBatchList();
   });
+
+  function removeBatchItem(f) {
+    // 从列表移除单个文件项（仅 UI 移除，不影响已在后台提交的任务）
+    const idx = batchFiles.indexOf(f);
+    if (idx >= 0) batchFiles.splice(idx, 1);
+    renderBatchList();
+  }
 
   $("btn-batch-start").addEventListener("click", async () => {
     if (!batchFiles.length) { alert("请先添加文件"); return; }
