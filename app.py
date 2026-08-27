@@ -214,9 +214,7 @@ class Api:
         r = self.convert_md(path, title, dest)
         if not r.get("ok"):
             raise RuntimeError(r.get("error", "转换失败"))
-        # 图片部分失败不判任务失败，但要把 warning 带给前端
-        if r.get("warning"):
-            r["error"] = r["warning"]  # task_queue 的 error 字段用于展示，成功态也显示
+        # 图片部分失败不判任务失败；warning 由 task_queue._run 同步到 task.error 供前端展示
         return r
 
     def convert_batch(self, paths, dest):

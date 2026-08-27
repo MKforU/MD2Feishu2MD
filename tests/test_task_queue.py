@@ -93,6 +93,33 @@ class TestStatusTransitions:
         assert "boom error" in q.get(tid).error
 
 
+class TestWarningSync:
+    def test_success_with_warning_syncs_to_error(self):
+        """成功但带 warning 的任务，error 字段应同步为 warning（前端成功态展示 ⚠）"""
+        q = TaskQueue(max_workers=2)
+
+        def with_warning():
+            return {"ok": True, "url": "https://feishu.cn/docx/x", "warning": "图片 1/2 张上传成功，失败: a.png"}
+
+        tid = q.submit(with_warning)
+        q.wait()
+        t = q.get(tid)
+        assert t.status == SUCCESS
+        assert t.error == "图片 1/2 张上传成功，失败: a.png"
+
+    def test_success_without_warning_clears_error(self):
+        """成功且无 warning 的任务，error 应为 None"""
+        q = TaskQueue(max_workers=2)
+
+        def no_warning():
+            return {"ok": True, "url": "https://feishu.cn/docx/x"}
+
+        tid = q.submit(no_warning)
+        q.wait()
+        assert q.get(tid).status == SUCCESS
+        assert q.get(tid).error is None
+
+
 class TestRetry:
     def test_retry_success(self):
         """失败 → retry → 成功"""

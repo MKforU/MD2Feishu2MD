@@ -78,6 +78,12 @@ class TaskQueue:
         self._set_status(task, RUNNING)
         try:
             task.result = task.fn(*task.args, **task.kwargs)
+            # 成功但带警告（如图片部分上传失败）→ 同步到 task.error：
+            # 前端 pollTasks 读 task.error 展示，成功态也能看到 ⚠ 提示
+            if isinstance(task.result, dict) and task.result.get("warning"):
+                task.error = task.result["warning"]
+            else:
+                task.error = None
             self._set_status(task, SUCCESS)
         except Exception as e:  # noqa: BLE001 - 任务级兜底，错误记录在 task.error
             task.error = str(e) or type(e).__name__  # 存消息，空消息兜底类型名
