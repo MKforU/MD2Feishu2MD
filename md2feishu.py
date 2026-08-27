@@ -217,20 +217,27 @@ def parse_md(path):
                 eq_lines = [s]
                 j = i + 1
                 closed = False
+                tail = ""
                 while j < len(lines):
-                    cur = lines[j].rstrip()
-                    eq_lines.append(cur)
-                    j += 1
-                    if cur.endswith(marker):
+                    raw = lines[j].rstrip()
+                    if marker in raw:
+                        # 闭合 marker 可能不在行尾（如 "$$ 也叫做贝尔曼方程"）：
+                        # marker 之前归公式，之后作为正文保留，避免吞掉后续整段
+                        idx = raw.index(marker)
+                        eq_lines.append(raw[:idx])
+                        tail = raw[idx + len(marker):].strip()
                         closed = True
+                        j += 1
                         break
+                    eq_lines.append(raw)
+                    j += 1
                 if closed:
                     joined = "\n".join(eq_lines)
                     joined = joined[len(marker):] if joined.startswith(marker) else joined
-                    if joined.endswith(marker):
-                        joined = joined[:-len(marker)]
                     if joined.strip():
                         items.append({"kind": "equation", "text": joined.strip()})
+                    if tail:
+                        items.append({"kind": "text", "text": tail})
                     i = j
                     continue
             # 否则（尾随文本 / 货币 $5 / 空公式）→ 落到下方普通 text，由 inline 处理

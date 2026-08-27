@@ -164,6 +164,22 @@ def test_chinese_note_after_dollar_not_swallowed():
     assert "正文" in texts, "正文不能被吞进公式"
 
 
+def test_closed_marker_with_trailing_text():
+    """闭合 $$ 后有正文（"$$ 也叫做贝尔曼方程"）→ 公式 + 正文分离，正文不吞"""
+    md = ("$$\\begin{aligned}\nV_\\pi &= \\mathbb{E}[x] \\\\\\\n"
+          "\\end{aligned}$$ 也叫做贝尔曼方程。\n下面这段是正文。\n")
+    items = parse_md_text(md)
+    eqs = [it for it in items if it["kind"] == "equation"]
+    assert len(eqs) == 1, items
+    assert "\\begin{aligned}" in eqs[0]["text"]
+    assert "V_\\pi" in eqs[0]["text"]
+    # 正文保留，且不被吞进公式
+    texts = " ".join(it["text"] for it in items if it["kind"] == "text")
+    assert "也叫做贝尔曼方程" in texts, texts
+    assert "下面这段是正文" in texts, texts
+    assert "下面这段是正文" not in eqs[0]["text"], "正文不能吞进公式"
+
+
 def test_currency_after_dollar_not_swallowed():
     """$ 后紧跟数字（货币 $5）→ 不跨行收集，落为普通 text"""
     items = parse_md_text("$5 和 $10\n")
