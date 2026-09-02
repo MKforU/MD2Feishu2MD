@@ -314,6 +314,36 @@
     }
   });
 
+  $("btn-clone").addEventListener("click", async () => {
+    // 复刻：读只读文档 → 生成归用户所有的新文档（可编辑）
+    const url = $("reverse-url").value.trim();
+    if (!url) { alert("请粘贴飞书文档链接"); return; }
+    const btn = $("btn-clone");
+    btn.disabled = true; btn.textContent = "复刻中…";
+    hideResult($("reverse-result"));
+    try {
+      const r = await api.clone_doc(url, null);
+      if (r.ok) {
+        const card = showResult($("reverse-result"), true, "复刻成功");
+        appendLink(card, r.url);
+        if (r.warning) appendWarning(card, r.warning);
+        const actions = appendActions(card);
+        const open = document.createElement("a");
+        open.href = r.url; open.target = "_blank"; open.textContent = "打开文档";
+        const copy = document.createElement("button");
+        copy.className = "btn"; copy.textContent = "复制链接";
+        copy.addEventListener("click", () => copyText(r.url));
+        actions.appendChild(open); actions.appendChild(copy);
+      } else {
+        showResult($("reverse-result"), false, "复刻失败", r.error || "");
+      }
+    } catch (e) {
+      showResult($("reverse-result"), false, "复刻失败", String(e));
+    } finally {
+      btn.disabled = false; btn.textContent = "复刻成我的文档";
+    }
+  });
+
   // ------------------------------------------------------------ 设置 tab
   const concurrencyInput = $("set-concurrency");
   concurrencyInput.addEventListener("input", () => {

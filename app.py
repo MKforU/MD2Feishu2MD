@@ -16,6 +16,7 @@ Api 类暴露给前端（window.pywebview.api.xxx）：
 import logging
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -292,6 +293,72 @@ class Api:
             return self._err(e)
 
     # ------------------------------------------------------------ 目标路径
+    def clone_doc(self, url, dest=None):
+        """复刻只读文档：读源文档 → md → 新文档（owner 转移给配置的用户）。
+
+        用于「我只能阅读、不能编辑」的文档：应用凭自身权限读出内容，
+        生成一份归用户所有的新文档，用户可自由编辑。
+        """
+        try:
+            client = self._get_client()
+            ref = _extract_doc_ref(url or "")
+            if not ref:
+                return {"ok": False, "error": "无法从链接解析文档 ID（需为 /docx/{id} 或 /wiki/{token} 链接）"}
+            kind, token = ref
+            if kind == "wiki":
+                node = client.get_wiki_node(token)
+                obj_token, obj_type = node.get("obj_token"), node.get("obj_type")
+                if obj_type and obj_type != "docx":
+                    return {"ok": False, "error": f"该知识库节点不是文档（obj_type={obj_type}），暂不支持"}
+                if not obj_token:
+                    return {"ok": False, "error": "知识库节点解析失败：未返回 obj_token"}
+                doc_id = obj_token
+            else:
+                doc_id = token
+
+            blocks = client.read_blocks(doc_id)
+            md_text, image_refs = render_document(blocks)
+
+            # 图片：下载到临时目录再上传到新文档（保证新文档图片可用）
+            img_failures = []
+            tmp_dir = None
+            if image_refs:
+                tmp_dir = tempfile.mkdtemp(prefix="clone_imgs_")
+                mapping, img_failures = client.download_images(image_refs, tmp_dir)
+                for old_name, real_name in mapping.items():
+                    if old_name != real_name:
+                        md_text = md_text.replace(f"images/{old_name}", f"images/{real_name}")
+
+            title = _extract_title(blocks) or doc_id
+            # 写临时 md 再走 convert_md（复用其全部上传/表格/公式/owner 逻辑）
+            tmp_md = tempfile.NamedTemporaryFile(
+                "w", suffix=".md", delete=False, encoding="utf-8",
+                dir=tmp_dir if tmp_dir else None,
+            )
+            tmp_md.write(md_text)
+            tmp_md.close()
+            try:
+                result = self.convert_md(tmp_md.name, f"{title}（副本）", dest)
+            finally:
+                os.unlink(tmp_md.name)
+                if tmp_dir:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            if result.get("ok"):
+                # 合并图片下载失败的信息（下载失败 → 新文档中留空图占位）
+                dl_fail = [f["name"] for f in img_failures]
+                if dl_fail:
+                    names = "、".join(dl_fail[:5])
+                    more = len(dl_fail) - 5
+                    suffix = f" 等 {more} 张" if more > 0 else ""
+                    msg = f"源文档图片下载失败 {len(dl_fail)} 张: {names}{suffix}（新文档中留空图占位）"
+                    prev = result.get("warning") or ""
+                    result["warning"] = (prev + "；" if prev else "") + msg
+                self.config.add_history({"title": f"{title}（副本）", "url": result["url"], "time": int(time.time())})
+            return result
+        except Exception as e:
+            return self._err(e)
+
     def list_dest_tree(self):
         """目标路径第一层：知识库列表 + 根目录文件夹（不递归节点树，避免大量请求卡顿）。
 
