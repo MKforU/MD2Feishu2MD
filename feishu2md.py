@@ -18,6 +18,9 @@ IMAGE_EXTS = ("png", "jpg", "jpeg", "gif", "webp", "bmp")
 
 def element_to_md(el):
     """单个 TextElement → md 文本（还原行内样式）"""
+    if "equation" in el:
+        # 行内公式：$...$ 包裹还原 LaTeX 源码（与正向 parse 的行内公式识别兼容）
+        return "$" + (el.get("equation") or {}).get("content", "").strip() + "$"
     run = el.get("text_run") or {}
     content = run.get("content", "")
     style = run.get("text_element_style") or {}
@@ -100,6 +103,11 @@ def render_block(block, blocks_by_id=None):
     if btype == 1:  # page 根块（透明容器，不输出）
         return ""
     if btype == 32:  # table_cell（由 table 块消费，不单独输出）
+        return ""
+    if btype == 16:  # 独立公式块
+        content = (block.get("equation") or {}).get("content", "").strip()
+        return "$$\n" + content + "\n$$"
+    if btype == 34:  # quote_container 高亮块（透明容器，children 递归时按引用渲染）
         return ""
     # 未知块
     return "[未知块]"
