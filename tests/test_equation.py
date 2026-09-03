@@ -62,6 +62,16 @@ def test_plain_dollar_not_treated_as_equation():
     assert all("equation" not in e for e in els), els
 
 
+def test_url_encoded_link_roundtrip():
+    """URL 编码链接（飞书反向导出形态）往返不丢：unquote 后含 :// → 保留 link"""
+    els = inline_elements("[github](https%3A%2F%2Fgithub.com%2FPhysical-Intelligence%2Fopenpi)")
+    assert len(els) == 1, els
+    run = els[0]["text_run"]
+    assert run["content"] == "github"
+    # 解码后的真实 URL 存入飞书
+    assert run["text_element_style"]["link"]["url"] == "https://github.com/Physical-Intelligence/openpi"
+
+
 def test_block_equation_with_trailing_text_not_dropped():
     """P0：$$...$$ 后带尾随文本时，公式+文字都不能丢"""
     items = parse_md_text("$$E=mc^2$$ 这是公式\n")

@@ -89,9 +89,17 @@ def inline_elements(text):
             lm = LINK_RE.match(t)
             # 仅当 URL 合法（非锚点 #xxx、含 :// 协议头）才包 link 样式；
             # 其余（锚点、相对路径如 Pytorch/wps1.jpg）降级纯文本，
-            # 否则飞书报 1770006 schema mismatch
-            if lm and not lm.group(2).startswith("#") and "://" in lm.group(2):
-                els.append(text_run(lm.group(1), link=lm.group(2)))
+            # 否则飞书报 1770006 schema mismatch。
+            # URL 解码后判断：飞书反向导出的链接是 URL 编码的
+            # （https%3A%2F%2F...，无字面 ://），需 unquote 再校验、
+            # 解码后的真实 URL 存入飞书（往返才能保住链接）
+            if lm and not lm.group(2).startswith("#"):
+                from urllib.parse import unquote
+                url = unquote(lm.group(2))
+                if "://" in url:
+                    els.append(text_run(lm.group(1), link=url))
+                else:
+                    els.append(text_run(lm.group(1)))
             elif lm:
                 els.append(text_run(lm.group(1)))
             else:

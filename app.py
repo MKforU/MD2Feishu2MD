@@ -270,7 +270,9 @@ class Api:
             os.makedirs(out_dir, exist_ok=True)
             img_failures = []
             if image_refs:
-                mapping, img_failures = client.download_images(image_refs, out_dir)
+                # md 引用 images/xxx，图片须落在 out_dir/images/ 子目录（往返才能找到）
+                img_dir = os.path.join(out_dir, "images")
+                mapping, img_failures = client.download_images(image_refs, img_dir)
                 for old_name, real_name in mapping.items():
                     if old_name != real_name:
                         md_text = md_text.replace(f"images/{old_name}", f"images/{real_name}")
@@ -324,7 +326,9 @@ class Api:
             tmp_dir = None
             if image_refs:
                 tmp_dir = tempfile.mkdtemp(prefix="clone_imgs_")
-                mapping, img_failures = client.download_images(image_refs, tmp_dir)
+                # md 引用 images/xxx，须落在临时 md 同级的 images/ 子目录
+                img_dir = os.path.join(tmp_dir, "images")
+                mapping, img_failures = client.download_images(image_refs, img_dir)
                 for old_name, real_name in mapping.items():
                     if old_name != real_name:
                         md_text = md_text.replace(f"images/{old_name}", f"images/{real_name}")
