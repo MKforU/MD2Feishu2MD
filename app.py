@@ -167,9 +167,19 @@ class Api:
                     return
                 children = [item_to_child(it) for it in pending]
                 created = client.add_children(doc_id, children)
+                # 列表/引用项内的行内图片：飞书列表块不能内嵌图片元素，
+                # parse_md 把引用留在文本里。这里抽出图片引用，作为列表/引用
+                # 块的子块挂入（渲染为缩进在列表项下），图片不再丢失
                 for it, blk in zip(pending, created):
                     if it["kind"] == "image":
                         img_slots.append((it["src"], blk["block_id"]))
+                    elif it["kind"] in ("bullet", "ordered", "quote", "todo") and "![" in it.get("text", ""):
+                        inner = re.findall(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)", it["text"])
+                        if inner:
+                            sub_children = [{"block_type": 27, "image": {}} for _ in inner]
+                            sub_created = client.add_children(doc_id, sub_children, parent_id=blk["block_id"])
+                            for src, sb in zip(inner, sub_created):
+                                img_slots.append((src, sb["block_id"]))
                 pending = []
 
             for it in items:

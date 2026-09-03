@@ -194,10 +194,16 @@ class FeishuClient:
             ))
         return doc_id
 
-    def add_children(self, doc_id, children):
-        """批量添加子块，返回创建后的 block 列表（与 children 等长）"""
+    def add_children(self, doc_id, children, parent_id=None):
+        """批量添加子块，返回创建后的 block 列表（与 children 等长）。
+
+        parent_id 默认文档根；指定列表/引用块 id 时挂为其子块
+        （用于列表项内嵌行内图片：飞书列表块不能内嵌图片元素，
+        抽出后作为子块缩进显示）。
+        """
+        pid = parent_id or doc_id
         resp = self._request(
-            "POST", f"{API}/docx/v1/documents/{doc_id}/blocks/{doc_id}/children",
+            "POST", f"{API}/docx/v1/documents/{doc_id}/blocks/{pid}/children",
             json={"children": children, "index": -1},
         )
         return self._json(resp)["data"]["children"]

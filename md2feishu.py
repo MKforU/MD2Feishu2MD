@@ -192,6 +192,7 @@ def parse_md(path):
             continue
         m = re.match(r"^!\[([^\]]*)\]\(([^)\s]+)(?:\s+[^)]*)?\)\s*$", s)
         if m:
+            # 独占一行的图片（在列表/引用分支之前：整行就是图片时优先出图）
             items.append({"kind": "image", "src": m.group(2)})
             i += 1
             continue
@@ -264,9 +265,9 @@ def parse_md(path):
             items.append({"kind": "bullet", "text": m.group(1)})
             i += 1
             continue
-        m = re.match(r"^\d+[.)]\s+(.*)", s)
+        m = re.match(r"^(\d+)[.)]\s+(.*)", s)
         if m:
-            items.append({"kind": "ordered", "text": m.group(1)})
+            items.append({"kind": "ordered", "text": m.group(2), "num": int(m.group(1))})
             i += 1
             continue
         if re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", s):
@@ -290,6 +291,19 @@ def parse_md(path):
             if rows:
                 items.append({"kind": "table", "rows": rows})
             continue
+        # 行内图片（图片嵌在普通文本中间，如"我这里选择：![img](x.png)"）：
+        # 拆成 前文/图片/后文。位于列表/引用/表格分支之后——那些行已被
+        # 各自分支截获保结构，不会到达这里；到达这里的只能是纯文本行
+        m = re.match(r"^(.*?)!\[([^\]]*)\]\(([^)\s]+)(?:\s+[^)]*)?\)(.*)$", s)
+        if m and (m.group(1).strip() or m.group(4).strip()):
+            pre, src_path, post = m.group(1).strip(), m.group(3), m.group(4).strip()
+            if pre:
+                items.append({"kind": "text", "text": pre})
+            items.append({"kind": "image", "src": src_path})
+            if post:
+                items.append({"kind": "text", "text": post})
+            i += 1
+            continue
         items.append({"kind": "text", "text": s})
         i += 1
 
@@ -299,6 +313,11 @@ def parse_md(path):
 
 
 # ---------------------------------------------------------------- item → children JSON
+def _strip_inline_images(text):
+    """列表/引用文本中抽走图片引用后剩下的纯文本（图片另作子块上传）"""
+    return re.sub(r"\s*!\[[^\]]*\]\([^)]*\)\s*", " ", text).strip()
+
+
 def item_to_child(item):
     kind = item["kind"]
     if kind == "heading":
@@ -308,16 +327,22 @@ def item_to_child(item):
             f"heading{lvl}": {"elements": inline_elements(item["text"])},
         }.items()}
     if kind == "bullet":
-        return {"block_type": 12, "bullet": {"elements": inline_elements(item["text"])}}
+        return {"block_type": 12, "bullet": {"elements": inline_elements(_strip_inline_images(item["text"]))}}
     if kind == "ordered":
-        return {"block_type": 13, "ordered": {"elements": inline_elements(item["text"])}}
+        body: dict = {"elements": inline_elements(_strip_inline_images(item["text"]))}
+        # 序号：飞书 sequence 字段控制编号——'auto' 从 1 计数，数字为显式序号
+        # （md "2." 开头的块 → sequence='2'，飞书显示 2.；列表分段恢复原文编号）
+        num = item.get("num")
+        if num and num > 1:
+            body["style"] = {"sequence": str(num)}
+        return {"block_type": 13, "ordered": body}
     if kind == "todo":
-        body: dict = {"elements": inline_elements(item["text"])}
+        body: dict = {"elements": inline_elements(_strip_inline_images(item["text"]))}
         if item["done"]:
             body["style"] = {"done": True}
         return {"block_type": 17, "todo": body}
     if kind == "quote":
-        return {"block_type": 15, "quote": {"elements": inline_elements(item["text"])}}
+        return {"block_type": 15, "quote": {"elements": inline_elements(_strip_inline_images(item["text"]))}}
     if kind == "code":
         body = {"elements": [{"text_run": {"content": item["text"]}}]}
         lang_id = LANG.get(item["lang"].lower())
