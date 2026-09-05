@@ -63,10 +63,11 @@ def _build_lang_reverse():
 _LANG_REVERSE = _build_lang_reverse()
 
 
-def render_block(block, blocks_by_id=None):
+def render_block(block, blocks_by_id=None, ordered_num=None):
     """单个飞书 block → md 文本行。
 
     blocks_by_id: block_id → block 映射（表格解析 cell 内容用）
+    ordered_num: 有序列表序号（由 _render_tree 按连续同层级递增计算）
     """
     btype = block.get("block_type")
     if btype in _HEADING_BLOCK_TYPES:
@@ -76,8 +77,8 @@ def render_block(block, blocks_by_id=None):
         return elements_to_md(block.get("text", {}).get("elements"))
     if btype == 12:  # bullet
         return "- " + elements_to_md(block.get("bullet", {}).get("elements"))
-    if btype == 13:  # ordered
-        return "1. " + elements_to_md(block.get("ordered", {}).get("elements"))
+    if btype == 13:  # ordered（序号由调用方按连续同层级递增计算）
+        return f"{ordered_num or 1}. " + elements_to_md(block.get("ordered", {}).get("elements"))
     if btype == 17:  # todo
         todo = block.get("todo", {})
         done = "x" if (todo.get("style") or {}).get("done") else " "
@@ -212,8 +213,20 @@ def _render_tree(block, blocks_by_id, depth, state):
         )
         return [indent + f"![图片{state['img_idx']}](images/{name})"]
 
+    # 有序列表序号：连续同层级 ordered 递增；被其他块打断或换层重置为 1
+    if btype == 13:
+        key = ("ordered_seq", depth)
+        if state.get("_last_was_ordered") and state.get("_last_ordered_depth") == depth:
+            state[key] = state.get(key, 1) + 1
+        else:
+            state[key] = 1
+        state["_last_was_ordered"] = True
+        state["_last_ordered_depth"] = depth
+    else:
+        state["_last_was_ordered"] = False
+
     lines = []
-    line = render_block(block, blocks_by_id)
+    line = render_block(block, blocks_by_id, ordered_num=state.get(("ordered_seq", depth), 1) if btype == 13 else None)
     if line:
         lines.append("  " * depth + line)
     if btype != 31:  # table 不递归 children（cells 已含内容）
