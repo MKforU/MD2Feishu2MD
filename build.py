@@ -11,6 +11,15 @@ import sys
 
 
 def main():
+    # CI（GitHub 托管 Windows runner）stdout 默认 cp1252，打印中文会
+    # UnicodeEncodeError——打包成功后仍退出码 1、Release 步骤不执行。
+    # 统一切到 UTF-8 + 容错；本地控制台行为不变
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     root = os.path.dirname(os.path.abspath(__file__))
     # 清理旧产物（ignore_errors：若旧 exe 仍被运行占用则跳过，避免打包中断）
     for d in ("build", "dist"):
