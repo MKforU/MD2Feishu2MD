@@ -1,10 +1,27 @@
-# md2feishu2md
+# MD2Feishu2MD
 
 Markdown ↔ 飞书云文档双向转换桌面应用（Windows）。
 
 - **正向**：本地 `.md`（含图片、表格、行内格式、代码块、任务列表）→ 飞书云文档，支持批量、指定目标路径（知识库/云空间文件夹）、任务队列与失败重试
 - **反向**：飞书云文档 → 本地 `.md`，图片自动下载到 `images/`
 - **形态**：pywebview 桌面应用（Python 主进程 + 内嵌网页 UI），可打包为单 exe
+
+> 本仓库派生自原仓库 [jiapenger00-debug/feishu2md2feishu](https://github.com/jiapenger00-debug/feishu2md2feishu)，在原仓库基础上做了增强，全部改动见下方[与原仓库的差异](#与原仓库的差异)。核心转换逻辑与整体结构均沿用原仓库。
+
+## 与原仓库的差异
+
+| 模块 | 原仓库 | 本仓库 |
+|---|---|---|
+| 转换目标 | 仅「知识库>节点 / 文件夹>子夹」路径**新建**文档 | 目标可直接粘贴**文档链接**（`/docx/`、`/wiki/`），**覆盖写入**（默认）或**追加**到已有文档；wiki 链接自动解析 `obj_token` 并校验节点类型 |
+| 批量转换 | 所有文件共用一个统一目标 | 每行可单独填写目标文档链接（localStorage 自动记忆，留空走统一目标）；**同一目标的任务串行执行**，避免并发写坏同一篇文档 |
+| 批量接口 | `convert_batch(paths, dest)` | `convert_batch(items)`，`items=[{path,dest,mode}]`，`mode=overwrite/append/create` |
+| 删除文档 | 无 | 新增「删除」Tab + `delete_doc()`：把本应用创建/拥有的文档移入飞书回收站（支持 `/docx/`、`/wiki/` 链接） |
+| API 封装 | — | 新增 `clear_doc_children()`（覆盖写入前清空文档块，批量删除单次 ≤50 块）；写入已有文档时**不再转移所有者** |
+| 批量列表 UI | 轮询整行重建，输入目标链接时会被打断丢字 | 轮询只刷新状态区块，目标链接输入不中断 |
+| 仓库 | `jiapenger00-debug/feishu2md2feishu` | `MKforU/MD2Feishu2MD` |
+
+> 改动文件：`app.py`、`feishu_api.py`、`ui/app.js`、`ui/index.html`、`ui/style.css`；`md2feishu.py`、`feishu2md.py` 等核心转换逻辑与原仓库一致。
+
 
 ## 截图
 
@@ -87,7 +104,7 @@ git tag v1.0.0 && git push origin v1.0.0
 ## 目录结构
 
 ```
-md2feishu2md/
+MD2Feishu2MD/
 ├── app.py              # pywebview 入口 + js_api（Python↔JS 桥）
 ├── feishu_api.py       # 飞书 OpenAPI 封装：token/限流/文档/图片/目标路径
 ├── md2feishu.py        # md → 飞书块（纯函数）
