@@ -14,6 +14,7 @@
         <button class="nav-btn active" data-tab="convert">📄 转换</button>
         <button class="nav-btn" data-tab="batch">📦 批量</button>
         <button class="nav-btn" data-tab="reverse">🔄 反向</button>
+        <button class="nav-btn" data-tab="delete">&#x1F5D1;&#xFE0F; 删除</button>
         <button class="nav-btn" data-tab="settings">⚙️ 设置</button>
       </nav>
     </aside>
@@ -37,7 +38,7 @@
           <label>目标路径</label>
           <div class="row">
             <select id="convert-dest"></select>
-            <input type="text" id="convert-dest-manual" placeholder="或手动输入：知识库>节点 或 文件夹>子夹">
+            <input type="text" id="convert-dest-manual" placeholder="或手动输入：知识库>节点 / 文件夹>子夹，或粘贴目标文档链接（覆盖写入）">
           </div>
         </div>
         <div class="field">
@@ -54,8 +55,9 @@
           <label>目标路径</label>
           <div class="row">
             <select id="batch-dest"></select>
-            <input type="text" id="batch-dest-manual" placeholder="或手动输入路径">
+            <input type="text" id="batch-dest-manual" placeholder="统一目标（未填行内链接的文件生效）：路径=分别新建 / 链接=依次追加">
           </div>
+          <p class="hint">每个文件可在下方列表内单独粘贴目标文档链接（<b>覆盖写入各自对应的文档</b>，按文件自动记忆）；行内留空则用上面的统一目标。</p>
         </div>
         <div class="field">
           <div class="row">
@@ -86,6 +88,22 @@
           <button class="btn" id="btn-clone" title="读出只读文档内容，生成一份归你所有、可自由编辑的新文档">复刻成我的文档</button>
         </div>
         <div id="reverse-result" class="result-card hidden"></div>
+      </section>
+
+      <!-- 删除 -->
+      <section id="tab-delete" class="tab-panel">
+        <h2>删除应用文档</h2>
+        <div class="field">
+          <label>文档链接</label>
+          <input type="text" id="delete-url" placeholder="粘贴飞书文档链接（/docx/ 或 /wiki/ 均可）">
+        </div>
+        <div class="field">
+          <p class="hint">仅能删除<b>本应用创建 / 拥有</b>的文档（应用空间里的文档在你的飞书里看不到，只能这样删）。删除后移入飞书回收站。</p>
+        </div>
+        <div class="field">
+          <button class="btn primary" id="btn-delete">删除文档</button>
+        </div>
+        <div id="delete-result" class="result-card hidden"></div>
       </section>
 
       <!-- 设置 -->

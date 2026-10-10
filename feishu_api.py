@@ -208,6 +208,26 @@ class FeishuClient:
         )
         return self._json(resp)["data"]["children"]
 
+    def clear_doc_children(self, doc_id):
+        """清空文档根下全部块（覆盖写入前调用），循环分批删除直到为空。
+
+        批量删除接口单次最多 50 块；根 page 块的 block_id = document_id。
+        不动文档标题（title 不是块）。
+        """
+        while True:
+            data = self._json(self._request(
+                "GET", f"{API}/docx/v1/documents/{doc_id}/blocks/{doc_id}/children",
+                params={"page_size": 500},
+            ))
+            count = len(data["data"].get("items") or [])
+            if not count:
+                return
+            self._json(self._request(
+                "DELETE",
+                f"{API}/docx/v1/documents/{doc_id}/blocks/{doc_id}/children/batch_delete",
+                json={"start_index": 0, "end_index": min(count, 50)},
+            ))
+
     def create_table(self, doc_id, item):
         """表格两步创建：先建空表（接口上限 9x9），超限逐行/列扩，再批量填 text。
 

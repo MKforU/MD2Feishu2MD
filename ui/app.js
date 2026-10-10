@@ -160,6 +160,17 @@
   let batchFiles = [];
   let pollTimer = null;
 
+  // 行内目标链接记忆：{ [文件路径]: 链接 }，添加同文件时自动回填
+  const TARGETS_KEY = "md2feishu2md.batchTargets";
+  function loadTargets() {
+    try { return JSON.parse(localStorage.getItem(TARGETS_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function saveTarget(path, url) {
+    const m = loadTargets();
+    if (url) m[path] = url; else delete m[path];
+    localStorage.setItem(TARGETS_KEY, JSON.stringify(m));
+  }
+
   function renderBatchList() {
     const ul = $("batch-list");
     ul.innerHTML = "";
@@ -168,6 +179,21 @@
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = f.name;
+      name.title = f.path;
+      li.appendChild(name);
+
+      // 行内目标文档链接：留空 = 用上方统一目标
+      const target = document.createElement("input");
+      target.type = "text";
+      target.className = "target-input";
+      target.placeholder = "目标文档链接（留空用统一目标）";
+      target.value = f.target || "";
+      target.addEventListener("input", () => {
+        f.target = target.value;
+        saveTarget(f.path, target.value.trim());
+      });
+      li.appendChild(target);
+
       const delBtn = document.createElement("button");
       delBtn.className = "del-btn";
       delBtn.title = "从列表删除";
@@ -179,40 +205,60 @@
         + '<rect x="13.4" y="10.5" width="1.6" height="8" rx="0.8"/>'
         + '</svg>';
       delBtn.addEventListener("click", () => removeBatchItem(f));
-      li.appendChild(name);
       li.appendChild(delBtn);
-      const badge = document.createElement("span");
-      badge.className = "badge " + f.status;
-      badge.textContent = { pending: "排队", running: "进行中", success: "成功", failed: "失败" }[f.status] || f.status;
-      li.appendChild(badge);
-      if (f.status === "failed") {
-        const retryBtn = document.createElement("button");
-        retryBtn.className = "btn";
-        retryBtn.textContent = "重试";
-        retryBtn.addEventListener("click", () => retryTask(f.taskId));
-        li.appendChild(retryBtn);
-        if (f.error) {
-          const err = document.createElement("span");
-          err.className = "err";
-          err.textContent = f.error;
-          li.appendChild(err);
-        }
-      } else if (f.status === "success" && f.error) {
-        // 成功但有警告（如部分图片上传失败），warning 借道 error 字段展示
-        const warn = document.createElement("span");
-        warn.className = "err warn-line";
-        warn.textContent = "⚠ " + f.error;
-        li.appendChild(warn);
-      }
+
+      // 状态区：轮询时只重建这一块，不碰输入框（避免打字被 800ms 重绘打断）
+      const statusBox = document.createElement("span");
+      statusBox.className = "status-box";
+      li.appendChild(statusBox);
+      f._els = { statusBox };
       ul.appendChild(li);
+      renderRowStatus(f);
     });
+  }
+
+  function renderRowStatus(f) {
+    const box = f._els && f._els.statusBox;
+    if (!box) return;
+    box.innerHTML = "";
+    const badge = document.createElement("span");
+    badge.className = "badge " + f.status;
+    badge.textContent = { pending: "排队", running: "进行中", success: "成功", failed: "失败" }[f.status] || f.status;
+    box.appendChild(badge);
+    if (f.status === "failed") {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "btn";
+      retryBtn.textContent = "重试";
+      retryBtn.addEventListener("click", () => retryTask(f.taskId));
+      box.appendChild(retryBtn);
+      if (f.error) {
+        const err = document.createElement("span");
+        err.className = "err";
+        err.textContent = f.error;
+        box.appendChild(err);
+      }
+    } else if (f.status === "success" && f.error) {
+      // 成功但有警告（如部分图片上传失败），warning 借道 error 字段展示
+      const warn = document.createElement("span");
+      warn.className = "err warn-line";
+      warn.textContent = "⚠ " + f.error;
+      box.appendChild(warn);
+    }
+  }
+
+  function updateBatchStatuses() {
+    batchFiles.forEach(renderRowStatus);
   }
 
   $("btn-pick-files").addEventListener("click", async () => {
     const paths = await api.open_files_dialog();
     if (paths && paths.length) {
+      const saved = loadTargets();
       paths.forEach((p) => {
-        batchFiles.push({ name: p.split(/[\\/]/).pop(), path: p, status: "pending", taskId: null, error: "" });
+        batchFiles.push({
+          name: p.split(/[\\/]/).pop(), path: p, status: "pending",
+          taskId: null, error: "", target: saved[p] || "",
+        });
       });
       renderBatchList();
     }
@@ -233,13 +279,22 @@
 
   $("btn-batch-start").addEventListener("click", async () => {
     if (!batchFiles.length) { alert("请先添加文件"); return; }
-    const dest = resolveDest($("batch-dest"), $("batch-dest-manual"));
-    const paths = batchFiles.filter((f) => f.status === "pending").map((f) => f.path);
-    if (!paths.length) { alert("没有待转换的文件"); return; }
+    const unified = resolveDest($("batch-dest"), $("batch-dest-manual")) || "";
+    // 每个文件的目标 = 行内链接 || 统一目标；模式由目标形态决定：
+    // 行内链接=覆盖写入各自文档；统一链接=追加到同一篇；路径/空=各自新建
+    const items = [];
+    batchFiles.forEach((f) => {
+      if (f.status !== "pending") return;
+      const own = (f.target || "").trim();
+      const dest = own || unified;
+      const isDocLink = /^https?:\/\//i.test(dest) && /\/(docx|wiki)\//i.test(dest);
+      items.push({ path: f.path, dest, mode: isDocLink ? (own ? "overwrite" : "append") : "create" });
+    });
+    if (!items.length) { alert("没有待转换的文件"); return; }
     const btn = $("btn-batch-start");
     btn.disabled = true;
     try {
-      const r = await api.convert_batch(paths, dest || null);
+      const r = await api.convert_batch(items);
       if (!r.ok) { alert("提交失败: " + r.error); return; }
       // 关联 task_id，并乐观标记为 running（避免 800ms 轮询窗口内重复提交）
       let idx = 0;
@@ -277,7 +332,7 @@
         if (t.status === "running" || t.status === "pending") allDone = false;
       }
     });
-    renderBatchList();
+    updateBatchStatuses();  // 只更新状态区，不重建输入框（避免打字被打断）
     if (allDone) stopPoll();
   }
 
@@ -341,6 +396,29 @@
       showResult($("reverse-result"), false, "复刻失败", String(e));
     } finally {
       btn.disabled = false; btn.textContent = "复刻成我的文档";
+    }
+  });
+
+  // ------------------------------------------------------------ 删除 tab
+  $("btn-delete").addEventListener("click", async () => {
+    const url = $("delete-url").value.trim();
+    if (!url) { alert("请粘贴要删除的飞书文档链接"); return; }
+    const ok = confirm("确认删除该文档？\n\n仅能删除本应用创建/拥有（通常是转换产出）的文档；删除后移入飞书回收站。");
+    if (!ok) return;
+    const btn = $("btn-delete");
+    btn.disabled = true; btn.textContent = "删除中…";
+    hideResult($("delete-result"));
+    try {
+      const r = await api.delete_doc(url);
+      if (r.ok) {
+        showResult($("delete-result"), true, "已删除", "文档已移入飞书回收站（" + r.doc_id + "）");
+      } else {
+        showResult($("delete-result"), false, "删除失败", r.error || "");
+      }
+    } catch (e) {
+      showResult($("delete-result"), false, "删除失败", String(e));
+    } finally {
+      btn.disabled = false; btn.textContent = "删除文档";
     }
   });
 

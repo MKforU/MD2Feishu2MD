@@ -3,8 +3,9 @@
 
 Api 类暴露给前端（window.pywebview.api.xxx）：
 - test_connection()            测试凭据是否有效
-- convert_md(path, title, dest)  正向：单篇 md → 飞书文档（同步）
-- convert_batch(paths, dest)     批量：提交到任务队列（异步，返回 task_ids）
+- convert_md(path, title, dest, mode)  正向：单篇 md → 飞书文档（同步）。dest 为目标路径
+  或目标文档链接（/docx/、/wiki/，链接时写入已有文档：默认覆盖，批量传 append）
+- convert_batch(items)            批量：items=[{path,dest,mode}] 提交任务队列（异步，返回 task_ids）
 - get_tasks() / retry_task()     批量任务状态查询 / 重试
 - convert_back(url, out_dir)     反向：飞书文档 → md（同步）
 - list_dest_tree()               目标路径树（知识库 + 云空间文件夹）
@@ -117,6 +118,22 @@ class Api:
             self.queue = TaskQueue(max_workers=self.config.get_concurrency())
         return self.queue
 
+    def _resolve_target_doc(self, client, ref):
+        """文档链接引用 → 可写入的 doc_id。wiki 节点解析 obj_token 并校验类型"""
+        kind, token = ref
+        if kind == "wiki":
+            node = client.get_wiki_node(token)
+            if node.get("obj_type") and node.get("obj_type") != "docx":
+                raise FeishuError(
+                    "UNSUPPORTED_OBJ",
+                    f"目标知识库节点不是文档（obj_type={node.get('obj_type')}），仅支持文档链接",
+                )
+            doc_id = node.get("obj_token")
+            if not doc_id:
+                raise FeishuError("NODE_RESOLVE_FAIL", "知识库节点解析失败：未返回 obj_token")
+            return doc_id
+        return token
+
     @staticmethod
     def _err(e):
         if isinstance(e, FeishuError):
@@ -143,8 +160,13 @@ class Api:
             return self._err(e)
 
     # ------------------------------------------------------------ 正向转换
-    def convert_md(self, path, title, dest):
-        """单篇 md → 飞书文档（同步阻塞）。返回 {"ok", "url"} 或 {"ok": False, "error"}"""
+    def convert_md(self, path, title, dest, mode="overwrite"):
+        """单篇 md → 飞书文档（同步阻塞）。返回 {"ok", "url"} 或 {"ok": False, "error"}
+
+        dest 为目标路径（知识库>节点 / 文件夹>子夹），或以 http 开头的目标文档链接
+        （/docx/、/wiki/）。链接模式下写入该已有文档而不新建：
+        mode="overwrite"（默认，先清空正文再写）/ mode="append"（接在文档末尾，批量用）。
+        """
         try:
             if not os.path.isfile(path):
                 return {"ok": False, "error": f"文件不存在: {path}"}
@@ -155,8 +177,19 @@ class Api:
             client = self._get_client()
             md_dir = os.path.dirname(os.path.abspath(path))
             title = (title or "").strip() or os.path.splitext(os.path.basename(path))[0]
+            dest = (dest or "").strip()
 
-            doc_id = client.create_doc_in_dest(title, dest)
+            is_link = dest.lower().startswith(("http://", "https://"))
+            link_ref = _extract_doc_ref(dest) if is_link else None
+            if is_link and not link_ref:
+                return {"ok": False, "error": "不支持该链接：目标需为文档链接（/docx/ 或 /wiki/），或改用「知识库>节点」路径"}
+
+            if link_ref:
+                doc_id = self._resolve_target_doc(client, link_ref)
+                if mode == "overwrite":
+                    client.clear_doc_children(doc_id)
+            else:
+                doc_id = client.create_doc_in_dest(title, dest)
             url = f"https://feishu.cn/docx/{doc_id}"
 
             img_slots, pending = [], []
@@ -207,7 +240,7 @@ class Api:
                     f"失败: {names}{suffix}（文档中会留空图占位）"
                 )
             owner = self.config.get_owner_open_id()
-            if owner:
+            if owner and not link_ref:  # 写入已有文档：所有权本就不归应用，不转移
                 try:
                     client.transfer_owner(doc_id, owner)
                 except Exception as e:
@@ -220,25 +253,48 @@ class Api:
         except Exception as e:
             return self._err(e)
 
-    def _convert_one(self, path, title, dest):
+    def _convert_one(self, path, title, dest, mode="overwrite"):
         """批量任务函数：成功返回 dict，失败抛异常（由 task_queue 捕获）"""
-        r = self.convert_md(path, title, dest)
+        r = self.convert_md(path, title, dest, mode=mode)
         if not r.get("ok"):
             raise RuntimeError(r.get("error", "转换失败"))
         # 图片部分失败不判任务失败；warning 由 task_queue._run 同步到 task.error 供前端展示
         return r
 
-    def convert_batch(self, paths, dest):
-        """批量转换：提交到任务队列，返回 task_ids（前端轮询 get_tasks 获取状态）"""
+    def convert_batch(self, items):
+        """批量转换：items = [{"path", "dest", "mode"}]，提交任务队列返回 task_ids。
+
+        mode：overwrite=覆盖目标文档 / append=追加到目标文档 / create=路径下新建。
+        同一链接目标的任务链式串行（篇内保序、防并发写冲突），不同目标之间并发。
+        """
         try:
             q = self._get_queue()
             task_ids = []
-            for p in paths:
-                title = os.path.splitext(os.path.basename(p))[0]
-                task_ids.append(q.submit(self._convert_one, p, title, dest))
+            prev_by_dest = {}  # 链接目标 → 最近一个任务的 done 事件（串行链）
+            for it in items:
+                path = it.get("path") or ""
+                dest = (it.get("dest") or "").strip()
+                mode = it.get("mode") or "create"
+                title = os.path.splitext(os.path.basename(path))[0]
+                is_link = dest.lower().startswith(("http://", "https://")) and _extract_doc_ref(dest)
+                if is_link:
+                    prev = prev_by_dest.get(dest)
+                    if prev is not None:
+                        tid = q.submit(self._after, prev, path, title, dest, mode)
+                    else:
+                        tid = q.submit(self._convert_one, path, title, dest, mode)
+                    prev_by_dest[dest] = q.get(tid).done
+                else:
+                    tid = q.submit(self._convert_one, path, title, dest, mode)
+                task_ids.append(tid)
             return {"ok": True, "task_ids": task_ids}
         except Exception as e:
             return self._err(e)
+
+    def _after(self, event, path, title, dest, mode):
+        """同目标串行链：等前一个任务结束再执行"""
+        event.wait()
+        return self._convert_one(path, title, dest, mode)
 
     def get_tasks(self):
         """批量任务状态列表"""
@@ -301,6 +357,36 @@ class Api:
                 suffix = f" 等 {more} 张" if more > 0 else ""
                 result["warning"] = f"图片下载失败 {len(img_failures)} 张: {names}{suffix}（md 中保留占位引用）"
             return result
+        except Exception as e:
+            return self._err(e)
+
+    # ------------------------------------------------------------ 删除文档
+    def delete_doc(self, url):
+        """删除应用创建/拥有的文档（移入飞书回收站）。url 支持 /docx/ 与 /wiki/ 链接。
+
+        应用空间里的文档在用户飞书界面看不到、无法手动删除，此方法提供
+        与「转换」对称的清理能力。仅能删除应用有权限（通常是应用自己创建）的文档。
+        """
+        try:
+            client = self._get_client()
+            ref = _extract_doc_ref(url or "")
+            if not ref:
+                return {"ok": False, "error": "无法从链接解析文档 ID（需为 /docx/{id} 或 /wiki/{token} 链接）"}
+
+            kind, token = ref
+            if kind == "wiki":
+                node = client.get_wiki_node(token)
+                obj_token, obj_type = node.get("obj_token"), node.get("obj_type")
+                if obj_type and obj_type != "docx":
+                    return {"ok": False, "error": f"该知识库节点不是文档（obj_type={obj_type}），暂不支持删除"}
+                if not obj_token:
+                    return {"ok": False, "error": "知识库节点解析失败：未返回 obj_token"}
+                doc_id = obj_token
+            else:
+                doc_id = token
+
+            client.delete_doc(doc_id)
+            return {"ok": True, "doc_id": doc_id}
         except Exception as e:
             return self._err(e)
 
