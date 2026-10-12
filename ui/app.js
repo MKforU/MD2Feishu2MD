@@ -280,17 +280,18 @@
   $("btn-batch-start").addEventListener("click", async () => {
     if (!batchFiles.length) { alert("请先添加文件"); return; }
     const unified = resolveDest($("batch-dest"), $("batch-dest-manual")) || "";
+    // 再次点击「开始全部」= 对列表中所有未在运行的文件重新执行
+    // （已成功的会按行内链接再次覆盖写入；running 中的跳过，防止重复任务）
     // 每个文件的目标 = 行内链接 || 统一目标；模式由目标形态决定：
     // 行内链接=覆盖写入各自文档；统一链接=追加到同一篇；路径/空=各自新建
-    const items = [];
-    batchFiles.forEach((f) => {
-      if (f.status !== "pending") return;
+    const targets = batchFiles.filter((f) => f.status !== "running");
+    const items = targets.map((f) => {
       const own = (f.target || "").trim();
       const dest = own || unified;
       const isDocLink = /^https?:\/\//i.test(dest) && /\/(docx|wiki)\//i.test(dest);
-      items.push({ path: f.path, dest, mode: isDocLink ? (own ? "overwrite" : "append") : "create" });
+      return { path: f.path, dest, mode: isDocLink ? (own ? "overwrite" : "append") : "create" };
     });
-    if (!items.length) { alert("没有待转换的文件"); return; }
+    if (!items.length) { alert("没有可转换的文件（任务进行中）"); return; }
     const btn = $("btn-batch-start");
     btn.disabled = true;
     try {
@@ -298,11 +299,9 @@
       if (!r.ok) { alert("提交失败: " + r.error); return; }
       // 关联 task_id，并乐观标记为 running（避免 800ms 轮询窗口内重复提交）
       let idx = 0;
-      batchFiles.forEach((f) => {
-        if (f.status === "pending") {
-          f.taskId = r.task_ids[idx++];
-          f.status = "running";
-        }
+      targets.forEach((f) => {
+        f.taskId = r.task_ids[idx++];
+        f.status = "running";
       });
       renderBatchList();
       startPoll();
